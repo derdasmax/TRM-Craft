@@ -1,0 +1,23 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+  html,body{margin:0;height:100%;background:transparent;font-family:Segoe UI,system-ui,sans-serif;overflow:hidden}
+  .card{position:absolute;inset:8px;border-radius:20px;background:#0b0d10;border:1px solid #ffffff14;display:grid;place-items:center;box-shadow:0 20px 60px #000a}
+  .wrap{text-align:center}
+  .logo{width:72px;height:72px;margin:0 auto 18px;display:grid;grid-template-columns:repeat(3,1fr);gap:3px}
+  .logo i{background:#34d399;border-radius:2px;opacity:0;animation:pop .5s cubic-bezier(.2,.9,.3,1.2) forwards}
+  .logo i:nth-child(even){background:#10b981}
+  @keyframes pop{from{opacity:0;transform:scale(.3)}to{opacity:1;transform:scale(1)}}
+  h1{margin:0;color:#f3f4f6;font-size:20px;letter-spacing:.14em;font-weight:600;opacity:0;animation:fade .6s .6s forwards}
+  p{margin:6px 0 0;color:#6b7280;font-size:12px;opacity:0;animation:fade .6s .8s forwards}
+  .bar{width:140px;height:2px;background:#ffffff10;margin:20px auto 0;border-radius:2px;overflow:hidden}
+  .bar b{display:block;height:100%;width:40%;background:#34d399;animation:slide 1.1s ease-in-out infinite}
+  @keyframes slide{from{transform:translateX(-100%)}to{transform:translateX(350%)}}
+  @keyframes fade{to{opacity:1}}
+  @media (prefers-reduced-motion:reduce){*{animation-duration:.01s!important}}
+</style></head><body><div class="card"><div class="wrap">
+  <div class="logo" id="l"></div><h1>TRM-CRAFT</h1><p>Wird gestartet …</p><div class="bar"><b></b></div>
+</div></div>
+<script>
+  const l=document.getElementById('l');const keep=[0,1,2,3,5,6,7,8];
+  for(let i=0;i<9;i++){const e=document.createElement('i');if(i===4||!keep.includes(i)&&i!==4){}e.style.animationDelay=(i*50)+'ms';if(i===4)e.style.visibility='hidden';l.appendChild(e)}
+</script></body></html>

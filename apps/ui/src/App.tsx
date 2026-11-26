@@ -1,0 +1,52 @@
+import { AnimatePresence, MotionConfig, motion } from 'framer-motion'
+import { useEffect } from 'react'
+import { Onboarding } from './components/Onboarding'
+import { Sidebar } from './components/Sidebar'
+import { TitleBar } from './components/TitleBar'
+import { Dashboard } from './pages/Dashboard'
+import { Settings } from './pages/Settings'
+import { useStore } from './lib/store'
+
+function useTheme() {
+  const { theme, accent, language } = useStore((s) => s.settings)
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const apply = () => {
+      document.documentElement.dataset.theme = theme === 'system' ? (mq.matches ? 'dark' : 'light') : theme
+    }
+    apply()
+    mq.addEventListener('change', apply)
+    return () => mq.removeEventListener('change', apply)
+  }, [theme])
+  useEffect(() => { document.documentElement.dataset.accent = accent }, [accent])
+  useEffect(() => { document.documentElement.lang = language }, [language])
+}
+
+export default function App() {
+  const ready = useStore((s) => s.ready)
+  const init = useStore((s) => s.init)
+  const page = useStore((s) => s.page)
+  const onboardingDone = useStore((s) => s.settings.onboardingDone)
+  useEffect(() => { void init() }, [init])
+  useTheme()
+  if (!ready) return null
+  return (
+    // reducedMotion="user": Bewegung entfällt bei aktivierter Systemeinstellung
+    <MotionConfig reducedMotion="user">
+      <div className="flex h-full flex-col">
+        <TitleBar />
+        <div className="flex min-h-0 flex-1">
+          <Sidebar />
+          <main className="min-w-0 flex-1 overflow-y-auto">
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div key={page} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}>
+                {page === 'dashboard' ? <Dashboard /> : <Settings />}
+              </motion.div>
+            </AnimatePresence>
+          </main>
+        </div>
+        <AnimatePresence>{!onboardingDone && <Onboarding />}</AnimatePresence>
+      </div>
+    </MotionConfig>
+  )
+}
