@@ -16,9 +16,13 @@ export type LogEvent =
 
 const NAME = '[A-Za-z0-9_.]{1,32}'
 // Paper/Vanilla/Forge: "Done (3.2s)! For help ...", Velocity: "Done (3.1s)!", BungeeCord/Waterfall: "Listening on /0.0.0.0:25577"
-const DONE = /\]: Done \([\d.,]+s\)!|Listening on \//
+// Bedrock: "Server started."
+const DONE = /\]: Done \([\d.,]+s\)!|Listening on \/|\] Server started\./
 const JOIN = new RegExp(`\\]: (${NAME}) joined the game\\s*$`)
 const LEAVE = new RegExp(`\\]: (${NAME}) left the game\\s*$`)
+// Bedrock-Gamertags dürfen Leerzeichen enthalten.
+const B_JOIN = /Player connected: (.+?), xuid:/
+const B_LEAVE = /Player disconnected: (.+?), xuid:/
 
 /** Erkennt wichtige Ereignisse in einer Minecraft-Logzeile. */
 export function parseLogLine(line: string): LogEvent | null {
@@ -27,6 +31,10 @@ export function parseLogLine(line: string): LogEvent | null {
   if (j) return { type: 'join', name: j[1]! }
   const l = LEAVE.exec(line)
   if (l) return { type: 'leave', name: l[1]! }
+  const bj = B_JOIN.exec(line)
+  if (bj) return { type: 'join', name: bj[1]! }
+  const bl = B_LEAVE.exec(line)
+  if (bl) return { type: 'leave', name: bl[1]! }
   return null
 }
 

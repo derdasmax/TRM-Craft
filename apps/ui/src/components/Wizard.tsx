@@ -3,7 +3,7 @@ import { Check, FileArchive, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
 import { LOADERS, LOADER_INFO, recommendRamMb, type CreateServerInput, type Loader, type SystemMemory, type VersionInfo } from '@trm/core'
-import { Button, Segmented } from './ui'
+import { Button, Segmented, Switch } from './ui'
 import { act } from '../lib/act'
 import { invoke, pathForFile } from '../lib/bridge'
 import { useT, type Key } from '../lib/i18n'
@@ -11,10 +11,12 @@ import { useStore } from '../lib/store'
 
 const STEP_LABEL = { software: 'wiz.step.software', version: 'wiz.step.version', details: 'wiz.step.details', ram: 'wiz.step.ram', world: 'wiz.step.world', finish: 'wiz.step.finish' } as const satisfies Record<string, Key>
 type StepKey = keyof typeof STEP_LABEL
-const GROUPS = ['server', 'mods', 'proxy'] as const
+const GROUPS = { java: ['server', 'mods', 'proxy'], bedrock: ['bedrock'] } as const
 const field = 'no-drag hairline h-10 w-full select-text rounded-ctl bg-raised/60 px-3.5 text-[13.5px] outline-none transition-colors placeholder:text-muted focus:border-accent/50'
 
 interface Draft {
+  edition: 'java' | 'bedrock'
+  crossplay: boolean
   loader: Loader
   mcVersion: string
   name: string
@@ -30,10 +32,11 @@ interface Draft {
 }
 
 const TEMPLATES: { id: string; name: Key; desc: Key; patch: Partial<Draft> }[] = [
-  { id: 'survival', name: 'wiz.tpl.survival', desc: 'wiz.tpl.survival.desc', patch: { loader: 'paper', gamemode: 'survival', difficulty: 'normal' } },
-  { id: 'modded', name: 'wiz.tpl.modded', desc: 'wiz.tpl.modded.desc', patch: { loader: 'fabric', gamemode: 'survival', difficulty: 'normal' } },
-  { id: 'minigames', name: 'wiz.tpl.minigames', desc: 'wiz.tpl.minigames.desc', patch: { loader: 'paper', gamemode: 'adventure', difficulty: 'normal' } },
-  { id: 'creative', name: 'wiz.tpl.creative', desc: 'wiz.tpl.creative.desc', patch: { loader: 'paper', gamemode: 'creative', difficulty: 'peaceful' } },
+  { id: 'survival', name: 'wiz.tpl.survival', desc: 'wiz.tpl.survival.desc', patch: { edition: 'java', loader: 'paper', crossplay: false, gamemode: 'survival', difficulty: 'normal' } },
+  { id: 'modded', name: 'wiz.tpl.modded', desc: 'wiz.tpl.modded.desc', patch: { edition: 'java', crossplay: false, loader: 'fabric', gamemode: 'survival', difficulty: 'normal' } },
+  { id: 'minigames', name: 'wiz.tpl.minigames', desc: 'wiz.tpl.minigames.desc', patch: { edition: 'java', crossplay: false, loader: 'paper', gamemode: 'adventure', difficulty: 'normal' } },
+  { id: 'crossplay', name: 'wiz.tpl.crossplay', desc: 'wiz.tpl.crossplay.desc', patch: { edition: 'java', loader: 'paper', crossplay: true, gamemode: 'survival', difficulty: 'normal' } },
+  { id: 'creative', name: 'wiz.tpl.creative', desc: 'wiz.tpl.creative.desc', patch: { edition: 'java', crossplay: false, loader: 'paper', gamemode: 'creative', difficulty: 'peaceful' } },
 ]
 
 export function Wizard() {
@@ -42,7 +45,7 @@ export function Wizard() {
   const progress = useStore((s) => s.progress)
   const openServer = useStore((s) => s.openServer)
   const [step, setStep] = useState(0)
-  const [d, setD] = useState<Draft>({ loader: 'paper', mcVersion: '', name: '', motd: '', gamemode: 'survival', difficulty: 'normal', maxPlayers: 20, ramMb: 4096, worldMode: 'new', seed: '', worldZip: null, eula: false })
+  const [d, setD] = useState<Draft>({ edition: 'java', crossplay: false, loader: 'paper', mcVersion: '', name: '', motd: '', gamemode: 'survival', difficulty: 'normal', maxPlayers: 20, ramMb: 4096, worldMode: 'new', seed: '', worldZip: null, eula: false })
   const [versions, setVersions] = useState<VersionInfo[] | null>(null)
   const [vError, setVError] = useState(false)
   const [query, setQuery] = useState('')
@@ -57,8 +60,10 @@ export function Wizard() {
   }, [d.loader])
 
   const shown = useMemo(() => (versions ?? []).filter((v) => v.id.includes(query.trim())).slice(0, 80), [versions, query])
-  const proxy = LOADER_INFO[d.loader].proxy
-  const steps: StepKey[] = proxy ? ['software', 'version', 'details', 'ram', 'finish'] : ['software', 'version', 'details', 'ram', 'world', 'finish']
+  const info = LOADER_INFO[d.loader]
+  const proxy = info.proxy
+  const bedrock = info.edition === 'bedrock'
+  const steps: StepKey[] = proxy ? ['software', 'version', 'details', 'ram', 'finish'] : bedrock ? ['software', 'version', 'details', 'finish'] : ['software', 'version', 'details', 'ram', 'world', 'finish']
   const key = steps[Math.min(step, steps.length - 1)]!
   const valid = { software: true, version: !!d.mcVersion, details: d.name.trim().length > 0, ram: d.ramMb >= 512, world: d.worldMode === 'new' || !!d.worldZip, finish: proxy || d.eula }[key]
   const token = useMemo(() => `create-${Date.now()}`, [])
@@ -67,10 +72,11 @@ export function Wizard() {
   const create = async () => {
     setBusy(t('wiz.creating'))
     const input: CreateServerInput = {
-      name: d.name.trim(), loader: d.loader, mcVersion: d.mcVersion, ramMb: d.ramMb, acceptEula: true,
+      name: d.name.trim(), loader: d.loader, mcVersion: d.mcVersion, ramMb: bedrock ? 1024 : d.ramMb, acceptEula: true,
       ...(proxy ? {} : {
         motd: d.motd || undefined, gamemode: d.gamemode, difficulty: d.difficulty, maxPlayers: d.maxPlayers,
-        seed: d.worldMode === 'new' && d.seed ? d.seed : undefined, worldZip: d.worldMode === 'import' && d.worldZip ? d.worldZip : undefined,
+        seed: d.worldMode === 'new' && d.seed ? d.seed : undefined, worldZip: !bedrock && d.worldMode === 'import' && d.worldZip ? d.worldZip : undefined,
+        crossplay: info.crossplay ? d.crossplay : undefined,
       }),
     }
     const r = await act(() => invoke('servers.create', { token, input }))
@@ -100,7 +106,7 @@ export function Wizard() {
             <motion.div key={step} initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -8 }} transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}>
               {key === 'software' && (
                 <div className="space-y-5">
-                  <div>
+                  {d.edition === 'java' && <div>
                     <div className="mb-2 text-[12px] font-semibold uppercase tracking-[0.12em] text-muted">{t('wiz.template')}</div>
                     <div className="grid gap-2 sm:grid-cols-2">
                       {TEMPLATES.map((tp) => (
@@ -110,13 +116,14 @@ export function Wizard() {
                         </button>
                       ))}
                     </div>
-                  </div>
-                  {GROUPS.map((g) => (
+                  </div>}
+                  <Segmented id="edition" value={d.edition} onChange={(edition) => set({ edition, crossplay: false, loader: edition === 'bedrock' ? 'bedrock' : 'paper' })} options={[{ value: 'java', label: t('wiz.edition.java') }, { value: 'bedrock', label: t('wiz.edition.bedrock') }]} />
+                  {GROUPS[d.edition].map((g) => (
                     <div key={g}>
                       <div className="mb-2 text-[12px] font-semibold uppercase tracking-[0.12em] text-muted">{t(`wiz.group.${g}` as Key)}</div>
                       <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label={t(`wiz.group.${g}` as Key)}>
                         {LOADERS.filter((l) => LOADER_INFO[l].group === g).map((l) => (
-                          <button key={l} role="radio" aria-checked={d.loader === l} onClick={() => set({ loader: l })} className={clsx('no-drag rounded-card p-3.5 text-left transition-[transform,border-color] duration-150 active:scale-[0.98]', d.loader === l ? 'border border-accent bg-accent/5' : 'hairline bg-raised/40 hover:bg-raised')}>
+                          <button key={l} role="radio" aria-checked={d.loader === l} onClick={() => set({ loader: l, crossplay: LOADER_INFO[l].crossplay ? d.crossplay : false })} className={clsx('no-drag rounded-card p-3.5 text-left transition-[transform,border-color] duration-150 active:scale-[0.98]', d.loader === l ? 'border border-accent bg-accent/5' : 'hairline bg-raised/40 hover:bg-raised')}>
                             <div className="font-display text-[14.5px] font-semibold">{LOADER_INFO[l].label}</div>
                             <div className="mt-1 text-[12px] leading-relaxed text-muted">{t(`wiz.loader.${l}.desc` as Key)}</div>
                           </button>
@@ -143,6 +150,12 @@ export function Wizard() {
                   <label className="block"><span className="mb-1.5 block text-[12.5px] text-muted">{t('wiz.name')}</span><input autoFocus value={d.name} maxLength={40} onChange={(e) => set({ name: e.target.value })} className={field} /></label>
                   {proxy && <p className="text-[12.5px] text-muted">{t('wiz.proxyNote')}</p>}
                   {!proxy && <label className="block"><span className="mb-1.5 block text-[12.5px] text-muted">{t('wiz.motd')}</span><input value={d.motd} maxLength={200} onChange={(e) => set({ motd: e.target.value })} className={field} /></label>}
+                  {info.crossplay && (
+                    <div className="hairline flex items-center justify-between gap-4 rounded-ctl bg-raised/40 p-4">
+                      <div><div className="text-[13.5px] font-medium">{t('wiz.crossplay')}</div><div className="mt-0.5 text-[12px] text-muted">{t('wiz.crossplay.hint')}</div></div>
+                      <Switch label={t('wiz.crossplay')} checked={d.crossplay} onChange={(crossplay) => set({ crossplay })} />
+                    </div>
+                  )}
                   {!proxy && <><div className="grid gap-4 sm:grid-cols-2">
                     <div><span className="mb-1.5 block text-[12.5px] text-muted">{t('wiz.gamemode')}</span><Segmented id="gm" value={d.gamemode} onChange={(gamemode) => set({ gamemode })} options={(['survival', 'creative', 'adventure'] as const).map((v) => ({ value: v, label: t(`wiz.gm.${v}` as Key) }))} /></div>
                     <label className="block"><span className="mb-1.5 block text-[12.5px] text-muted">{t('wiz.maxPlayers')}</span><input type="number" min={1} max={1000} value={d.maxPlayers} onChange={(e) => set({ maxPlayers: Math.max(1, Math.min(1000, Number(e.target.value) || 1)) })} className={clsx(field, 'font-mono tabular-nums')} /></label>
@@ -181,8 +194,8 @@ export function Wizard() {
                     <div className="mb-2 text-[12px] font-semibold uppercase tracking-[0.12em] text-muted">{t('wiz.summary')}</div>
                     <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 text-[13px]">
                       <dt className="text-muted">{t('wiz.name')}</dt><dd className="font-medium">{d.name}</dd>
-                      <dt className="text-muted">{t('wiz.step.software')}</dt><dd className="font-mono">{LOADER_INFO[d.loader].label} {d.mcVersion}</dd>
-                      <dt className="text-muted">{t('wiz.ram')}</dt><dd className="font-mono">{gb(d.ramMb)} GB</dd>
+                      <dt className="text-muted">{t('wiz.step.software')}</dt><dd className="font-mono">{info.label} {d.mcVersion}{d.crossplay ? ' + Crossplay' : ''}</dd>
+                      {!bedrock && <><dt className="text-muted">{t('wiz.ram')}</dt><dd className="font-mono">{gb(d.ramMb)} GB</dd></>}
                       {!proxy && <><dt className="text-muted">{t('wiz.gamemode')}</dt><dd>{t(`wiz.gm.${d.gamemode}` as Key)}, {t(`wiz.diff.${d.difficulty}` as Key)}</dd></>}
                     </dl>
                   </div>

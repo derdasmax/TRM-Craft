@@ -11,9 +11,9 @@ import { analyzeCrash } from './crash'
 import { downloadFile, type FetchLike } from './download'
 import { ensureJava } from './java'
 import { jvmArgs } from './jvm'
-import { findFreePort, isPortFree } from './ports'
+import { findFreePort, isPortFree, isUdpPortFree } from './ports'
 import { runInstaller, type InstallerRunner } from './installer'
-import { LOADER_DEFS } from './loaders'
+import { installCrossplay, LOADER_DEFS } from './loaders'
 import { parseProperties, updateProperties } from './properties'
 import { ServerProcess, type LaunchSpec } from './process'
 
@@ -31,7 +31,7 @@ export interface ManagerDeps {
   installerRunner?: InstallerRunner
   /** Nur für Tests: ersetzt die Loader-Installation. */
   loaderDefs?: typeof LOADER_DEFS
-  portCheck?: (p: number) => Promise<boolean>
+  portCheck?: (p: number, udp?: boolean) => Promise<boolean>
   restartDelayMs?: (attempt: number) => number
 }
 
@@ -142,11 +142,12 @@ export class ServerManager {
   }
 
   private usedPorts(except?: string): Set<number> {
-    return new Set(this.records.filter((r) => r.id !== except).map((r) => r.port))
+    return new Set(this.records.filter((r) => r.id !== except).flatMap((r) => (r.bedrockPort ? [r.port, r.bedrockPort] : [r.port])))
   }
 
-  private async portFree(p: number) {
-    return (this.d.portCheck ?? isPortFree)(p)
+  private async portFree(p: number, udp = false) {
+    if (this.d.portCheck) return this.d.portCheck(p, udp)
+    return udp ? isUdpPortFree(p) : isPortFree(p)
   }
 
   // ---------- Erstellen ----------
@@ -158,8 +159,9 @@ export class ServerManager {
     const defs = this.d.loaderDefs ?? LOADER_DEFS
     const owner = input.port ? this.records.find((r) => r.port === input.port) : undefined
     if (owner) throw new Error(`Port ${input.port} ist bereits dem Server „${owner.name}“ zugewiesen.`)
-    const port = input.port ?? (await findFreePort(info.defaultPort ?? 25565, this.usedPorts(), (p) => this.portFree(p)))
-    if (!(await this.portFree(port))) throw new Error(`Port ${port} ist auf diesem PC bereits belegt.`)
+    const udp = !!info.udp
+    const port = input.port ?? (await findFreePort(info.defaultPort ?? 25565, this.usedPorts(), (p) => this.portFree(p, udp)))
+    if (!(await this.portFree(port, udp))) throw new Error(`Port ${port} ist auf diesem PC bereits belegt.`)
     // Proxys lesen ihren Port aus einer Konfigurationsdatei, die erst beim ersten Start entsteht.
     if (info.proxy && port !== info.defaultPort) throw new Error(`${info.label} läuft zunächst auf Port ${info.defaultPort}. Dieser Port ist belegt. Beende das andere Programm oder ändere den Port später in der Konfigurationsdatei.`)
 
@@ -169,15 +171,27 @@ export class ServerManager {
     try {
       progress('Version wird gesucht …', null)
       const javaMajor = await defs[input.loader].javaMajor(input.mcVersion, this.d.fetchImpl)
-      const java = await (this.d.ensureJavaImpl ?? ensureJava)({ runtimesDir: this.runtimesDir, major: javaMajor, platform: this.d.platform, fetchImpl: this.d.fetchImpl, onProgress: progress })
+      const java = info.java
+        ? await (this.d.ensureJavaImpl ?? ensureJava)({ runtimesDir: this.runtimesDir, major: javaMajor, platform: this.d.platform, fetchImpl: this.d.fetchImpl, onProgress: progress })
+        : ''
       const result = await defs[input.loader].install({
         dir, version: input.mcVersion, java, platform: this.d.platform ?? process.platform, fetchImpl: this.d.fetchImpl,
-        download: this.d.downloadImpl ?? downloadFile, run: this.d.installerRunner ?? runInstaller, progress,
+        download: this.d.downloadImpl ?? downloadFile, run: this.d.installerRunner ?? runInstaller, extract: (zip, to) => extract(zip, { dir: to }), progress,
       })
       if (info.extFolder) mkdirSync(join(dir, info.extFolder), { recursive: true })
 
       const acceptedAt = info.proxy ? null : new Date().toISOString()
-      if (!info.proxy) {
+      let bedrockPort: number | undefined
+      if (info.edition === 'bedrock') {
+        const f = join(dir, 'server.properties')
+        const props: Record<string, string> = { 'server-port': String(port), 'server-portv6': String(port + 1) }
+        if (input.motd) props['server-name'] = input.motd.replace(/[\r\n;]/g, ' ')
+        if (input.seed) props['level-seed'] = input.seed.replace(/[\r\n]/g, '')
+        if (input.gamemode) props.gamemode = input.gamemode
+        if (input.difficulty) props.difficulty = input.difficulty === 'peaceful' ? 'peaceful' : input.difficulty
+        if (input.maxPlayers) props['max-players'] = String(input.maxPlayers)
+        writeFileSync(f, updateProperties(existsSync(f) ? readFileSync(f, 'utf8') : '', props))
+      } else if (!info.proxy) {
         writeFileSync(join(dir, 'eula.txt'), `# Vom Nutzer in TRM-Craft akzeptiert am ${acceptedAt}\n# https://aka.ms/MinecraftEULA\neula=true\n`)
         const props: Record<string, string> = { 'server-port': String(port) }
         if (input.motd) props.motd = input.motd.replace(/[\r\n]/g, ' ')
@@ -190,11 +204,15 @@ export class ServerManager {
           progress('Welt wird importiert …', null)
           await this.importWorld(input.worldZip, dir)
         }
+        if (input.crossplay && info.crossplay) {
+          bedrockPort = await findFreePort(19132, new Set([...this.usedPorts(), port]), (p) => this.portFree(p, true))
+          await installCrossplay({ dir, fetchImpl: this.d.fetchImpl, download: this.d.downloadImpl ?? downloadFile, progress }, port, bedrockPort)
+        }
       }
 
       const record = ServerRecordSchema.parse({
-        id, name: input.name, edition: 'java', loader: input.loader, mcVersion: input.mcVersion, build: result.build, port, ramMb: input.ramMb,
-        jvmPreset: 'aikar', javaMajor, launch: result.launch, autoRestart: true, autostart: false, eulaAcceptedAt: acceptedAt, createdAt: new Date().toISOString(),
+        id, name: input.name, loader: input.loader, mcVersion: input.mcVersion, build: result.build, port, ramMb: input.ramMb,
+        jvmPreset: 'aikar', javaMajor: info.java ? javaMajor : undefined, launch: result.launch, crossplay: !!bedrockPort, bedrockPort, edition: info.edition, autoRestart: true, autostart: false, eulaAcceptedAt: acceptedAt, createdAt: new Date().toISOString(),
       })
       this.records.push(record)
       this.save()
@@ -272,14 +290,18 @@ export class ServerManager {
     for (const other of this.records) {
       if (other.id !== id && other.port === r.port && this.runtimes.get(other.id)?.proc.status === 'running') throw new Error(`Port ${r.port} wird bereits von „${other.name}“ genutzt.`)
     }
-    if (!(await this.portFree(r.port))) throw new Error(`Port ${r.port} ist belegt. Ändere den Port in den Server-Einstellungen.`)
-    const java = await (this.d.ensureJavaImpl ?? ensureJava)({
-      runtimesDir: this.runtimesDir, major: r.javaMajor, platform: this.d.platform, fetchImpl: this.d.fetchImpl,
-      onProgress: (label, percent) => this.d.emit('servers.progress', { token: `start-${id}`, label, percent }),
-    })
+    const udp = !!LOADER_INFO[r.loader].udp
+    if (!(await this.portFree(r.port, udp))) throw new Error(`Port ${r.port} ist belegt. Ändere den Port in den Server-Einstellungen.`)
+    if (r.bedrockPort && !(await this.portFree(r.bedrockPort, true))) throw new Error(`Der Bedrock-Port ${r.bedrockPort} (UDP) ist belegt.`)
+    const java = r.javaMajor
+      ? await (this.d.ensureJavaImpl ?? ensureJava)({
+          runtimesDir: this.runtimesDir, major: r.javaMajor, platform: this.d.platform, fetchImpl: this.d.fetchImpl,
+          onProgress: (label, percent) => this.d.emit('servers.progress', { token: `start-${id}`, label, percent }),
+        })
+      : ''
     rt.lastCrash = undefined
     rt.logs.length = 0
-    const spec = this.d.launcher?.(r, java, dir) ?? { command: java, args: jvmArgs(r, this.d.platform), cwd: dir }
+    const spec = this.d.launcher?.(r, java, dir) ?? (r.launch.type === 'exe' ? { command: join(dir, r.launch.exe), args: [], cwd: dir } : { command: java, args: jvmArgs(r, this.d.platform), cwd: dir })
     rt.proc.start(spec)
   }
 

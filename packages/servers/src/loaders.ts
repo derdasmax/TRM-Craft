@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { LOADER_INFO, type Launch, type Loader, type VersionInfo } from '@trm/core'
 import { downloadFile, type FetchLike } from './download'
@@ -7,6 +7,8 @@ import { javaForMinecraft } from './providers/adoptium'
 import { listMetaGameVersions, resolveFabric, resolveQuilt } from './providers/fabric'
 import { listForgeVersions, listNeoForgeVersions, resolveForge, resolveNeoForge } from './providers/forge'
 import { fetchManifest, listFromManifest, resolveVanilla } from './providers/mojang'
+import { resolveBedrock } from './providers/bedrock'
+import { geyserConfig, resolveGeyser } from './providers/geyser'
 import { listPaperVersions, resolvePaperBuild } from './providers/paper'
 import { listPurpurVersions, resolvePurpur } from './providers/purpur'
 
@@ -18,6 +20,7 @@ export interface InstallCtx {
   fetchImpl?: FetchLike
   download: typeof downloadFile
   run: InstallerRunner
+  extract: (zip: string, dir: string) => Promise<void>
   progress: (label: string, percent: number | null) => void
 }
 
@@ -63,7 +66,34 @@ const paperLike = (project: string): LoaderDef => ({
   },
 })
 
+/** Installiert Geyser und Floodgate, damit Bedrock-Spieler (Handy, Konsole, Windows) einem Java-Server beitreten können. */
+export async function installCrossplay(c: Pick<InstallCtx, 'dir' | 'fetchImpl' | 'download' | 'progress'>, javaPort: number, bedrockPort: number): Promise<void> {
+  const plugins = join(c.dir, 'plugins')
+  mkdirSync(plugins, { recursive: true })
+  for (const project of ['geyser', 'floodgate'] as const) {
+    const r = await resolveGeyser(project, c.fetchImpl)
+    await c.download({ url: r.url, dest: join(plugins, `${project === 'geyser' ? 'Geyser' : 'floodgate'}-Spigot.jar`), sha256: r.sha256, fetchImpl: c.fetchImpl, onProgress: dlProgress(c as InstallCtx, `${project === 'geyser' ? 'Geyser' : 'Floodgate'} wird geladen …`) })
+  }
+  mkdirSync(join(plugins, 'Geyser-Spigot'), { recursive: true })
+  writeFileSync(join(plugins, 'Geyser-Spigot', 'config.yml'), geyserConfig(bedrockPort, javaPort))
+}
+
 export const LOADER_DEFS: Record<Loader, LoaderDef> = {
+  bedrock: {
+    // Mojang veröffentlicht nur die jeweils aktuelle Version zum Download.
+    versions: async (f) => [{ id: (await resolveBedrock(f)).version, type: 'release' }],
+    javaMajor: async () => 0,
+    async install(c) {
+      const b = await resolveBedrock(c.fetchImpl)
+      const zip = join(c.dir, 'bedrock-server.zip')
+      await c.download({ url: b.url, dest: zip, fetchImpl: c.fetchImpl, onProgress: dlProgress(c, 'Bedrock-Server wird geladen …') })
+      c.progress('Bedrock-Server wird entpackt …', null)
+      await c.extract(zip, c.dir)
+      rmSync(zip, { force: true })
+      if (!existsSync(join(c.dir, 'bedrock_server.exe'))) throw new Error('bedrock_server.exe fehlt im Download.')
+      return { build: b.version, launch: { type: 'exe', exe: 'bedrock_server.exe' } }
+    },
+  },
   vanilla: {
     versions: mcVersions,
     javaMajor: mcJava,

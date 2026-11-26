@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest'
 import { fetchManifest, listFromManifest, resolveVanilla } from './mojang'
 import { listPaperVersions, resolvePaperBuild } from './paper'
 import { resolveJre } from './adoptium'
+import { resolveBedrock } from './bedrock'
+import { resolveGeyser } from './geyser'
 import { listMetaGameVersions, resolveFabric, resolveQuilt } from './fabric'
 import { listForgeVersions, listNeoForgeVersions, resolveForge, resolveNeoForge } from './forge'
 import { listPurpurVersions, resolvePurpur } from './purpur'
@@ -63,4 +65,10 @@ describe.runIf(live)('Live-APIs', () => {
       expect((await resolvePaperBuild(list[0]!.id, project)).url, project).toMatch(/^https:\/\//)
     }
   }, 60_000)
+
+  it('Bedrock Dedicated Server und Geyser/Floodgate', async () => {
+    const b = await resolveBedrock()
+    expect(b.version).toMatch(/^\d+\.\d+\.\d+/)
+    for (const p of ['geyser', 'floodgate'] as const) expect((await resolveGeyser(p)).sha256).toMatch(/^[0-9a-f]{64}$/)
+  }, 30_000)
 })

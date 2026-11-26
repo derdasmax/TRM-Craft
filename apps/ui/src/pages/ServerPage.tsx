@@ -30,15 +30,16 @@ function SettingsTab({ s }: { s: ServerView }) {
       <Section title={t('srv.tab.settings')}>
         <Row title={t('srv.name')}><input value={name} maxLength={40} onChange={(e) => setName(e.target.value)} className={clsx(field, 'w-56')} aria-label={t('srv.name')} /></Row>
         <Row title={t('srv.port')}><input type="number" min={1024} max={65535} value={port} onChange={(e) => setPort(Number(e.target.value))} className={clsx(field, 'w-28 font-mono tabular-nums')} aria-label={t('srv.port')} /></Row>
-        <Row title={t('srv.ram')} hint={t('srv.restartHint')}>
+        {s.bedrockPort && <Row title={t('srv.bedrockPort')}><span className="font-mono text-[13px] tabular-nums text-muted">{s.bedrockPort}</span></Row>}
+        {s.edition === 'java' && <Row title={t('srv.ram')} hint={t('srv.restartHint')}>
           <label className="flex items-center gap-3 text-[13px] text-muted">
             <input type="range" min={1024} max={Math.max(ram, 16384)} step={512} value={ram} onChange={(e) => setRam(Number(e.target.value))} className="no-drag w-40 accent-[rgb(var(--accent))]" aria-label={t('srv.ram')} />
             <span className="w-14 font-mono tabular-nums text-fg">{(ram / 1024).toFixed(1)} GB</span>
           </label>
-        </Row>
-        <Row title={t('srv.preset')}>
+        </Row>}
+        {s.edition === 'java' && <Row title={t('srv.preset')}>
           <Segmented id="preset" value={s.jvmPreset} onChange={(jvmPreset) => act(() => invoke('servers.update', { id: s.id, patch: { jvmPreset } }))} options={[{ value: 'aikar', label: t('srv.preset.aikar') }, { value: 'none', label: t('srv.preset.none') }]} />
-        </Row>
+        </Row>}
         <Row title={t('srv.autorestart')}><Switch label={t('srv.autorestart')} checked={s.autoRestart} onChange={(autoRestart) => act(() => invoke('servers.update', { id: s.id, patch: { autoRestart } }))} /></Row>
         <Row title={t('srv.autostart')}><Switch label={t('srv.autostart')} checked={s.autostart} onChange={(autostart) => act(() => invoke('servers.update', { id: s.id, patch: { autostart } }))} /></Row>
       </Section>
@@ -67,7 +68,7 @@ export function ServerPage() {
       <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="font-display text-[24px] font-semibold tracking-tight">{s.name}</h1>
-          <div className="mt-1 flex flex-wrap items-center gap-3"><StatusPill status={s.status} /><span className="font-mono text-[12px] text-muted">{s.loader} {s.mcVersion} · :{s.port}</span>{s.players.length > 0 && <span className="text-[12.5px] text-muted">{s.players.join(', ')}</span>}</div>
+          <div className="mt-1 flex flex-wrap items-center gap-3"><StatusPill status={s.status} /><span className="font-mono text-[12px] text-muted">{s.loader} {s.mcVersion} · :{s.port}{s.edition === 'bedrock' ? ' UDP' : ''}{s.bedrockPort ? ` · :${s.bedrockPort} UDP` : ''}</span>{s.players.length > 0 && <span className="text-[12.5px] text-muted">{s.players.join(', ')}</span>}</div>
         </div>
         <ServerActions s={s} />
       </div>

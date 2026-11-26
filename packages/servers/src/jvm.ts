@@ -18,5 +18,6 @@ export function aikarFlags(ramMb: number): string[] {
 export function jvmArgs(r: Pick<ServerRecord, 'ramMb' | 'jvmPreset' | 'launch'>, platform: NodeJS.Platform = process.platform): string[] {
   const mem = [`-Xms${r.ramMb}M`, `-Xmx${r.ramMb}M`, ...(r.jvmPreset === 'aikar' ? aikarFlags(r.ramMb) : [])]
   if (r.launch.type === 'args') return [...mem, `@${r.launch.argsFile.replace('{platform}', platform === 'win32' ? 'win' : 'unix')}`, 'nogui']
+  if (r.launch.type === 'exe') throw new Error('Natives Programm hat keine JVM-Argumente.')
   return [...mem, '-jar', r.launch.jar, 'nogui']
 }

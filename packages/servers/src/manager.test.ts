@@ -1,4 +1,5 @@
-import { mkdirSync, mkdtempSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
+import archiver from 'archiver'
+import { createWriteStream, mkdirSync, mkdtempSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -194,5 +195,66 @@ describe('ServerManager', () => {
     const { m: m2, used: u2 } = setup({ fetchImpl: proxyFetch })
     u2.add(25577)
     await expect(m2.create('t2', { name: 'Zweiter', loader: 'velocity', mcVersion: '3.4.0-SNAPSHOT', ramMb: 512, acceptEula: true })).rejects.toThrow(/25577/)
+  })
+
+  it('legt einen Bedrock-Server ohne Java an und behält die Standard-Properties', async () => {
+    const fetchImpl = (async (input: string | URL | Request) => {
+      if (String(input).includes('download/links')) return new Response(JSON.stringify({ result: { links: [{ downloadType: 'serverBedrockWindows', downloadUrl: 'https://www.minecraft.net/bedrockdedicatedserver/bin-win/bedrock-server-1.21.50.7.zip' }] } }))
+      return new Response('{}', { status: 404 })
+    }) as typeof fetch
+    const { m, dataDir } = setup({
+      fetchImpl,
+      ensureJavaImpl: async () => { throw new Error('Java darf nicht geladen werden') },
+      downloadImpl: async (o) => {
+        await new Promise<void>((resolve) => {
+          mkdirSync(join(o.dest, '..'), { recursive: true })
+          const out = createWriteStream(o.dest)
+          out.on('close', () => resolve())
+          const a = archiver('zip')
+          a.pipe(out)
+          a.append('exe', { name: 'bedrock_server.exe' })
+          a.append('server-name=Dedicated Server\nserver-port=19132\nallow-cheats=false\n', { name: 'server.properties' })
+          void a.finalize()
+        })
+      },
+    })
+    const r = await m.create('b', { name: 'Handy-Welt', loader: 'bedrock', mcVersion: '1.21.50.7', ramMb: 1024, acceptEula: true, motd: 'Hallo', gamemode: 'creative' })
+    expect(r.edition).toBe('bedrock')
+    expect(r.port).toBe(19132)
+    expect(r.javaMajor).toBeUndefined()
+    expect(r.launch).toEqual({ type: 'exe', exe: 'bedrock_server.exe' })
+    expect(r.eulaAcceptedAt).not.toBeNull()
+    expect(m.getProperties(r.id)).toMatchObject({ 'server-name': 'Hallo', gamemode: 'creative', 'server-port': '19132', 'allow-cheats': 'false' })
+    expect(existsSync(join(dataDir, 'servers', r.id, 'eula.txt'))).toBe(false)
+    expect(existsSync(join(dataDir, 'servers', r.id, 'bedrock-server.zip'))).toBe(false)
+  })
+
+  it('richtet Crossplay mit Geyser und Floodgate ein und trennt die Bedrock-Ports', async () => {
+    const downloaded: string[] = []
+    const fetchImpl = (async (input: string | URL | Request) => {
+      const url = String(input)
+      if (url.includes('download.geysermc.org')) return new Response(JSON.stringify({ downloads: { spigot: { name: 'x.jar', sha256: 'abc' } } }))
+      if (url.includes('/v3/projects/paper/versions/1.21.4/builds')) return new Response(JSON.stringify([{ id: 9, channel: 'STABLE', downloads: { 'server:default': { name: 'p.jar', url: 'https://fill-data.papermc.io/p.jar', checksums: { sha256: 'x' } } } }]))
+      if (url.includes('version_manifest')) return new Response(JSON.stringify({ latest: { release: '1.21.4', snapshot: 'x' }, versions: [{ id: '1.21.4', type: 'release', url: 'https://piston-meta.mojang.com/v.json', releaseTime: '2024-12-03T00:00:00+00:00' }] }))
+      if (url.endsWith('/v.json')) return new Response(JSON.stringify({ id: '1.21.4', downloads: { server: { url: 'https://piston-data.mojang.com/s.jar', sha1: 'a', size: 1 } }, javaVersion: { majorVersion: 21 } }))
+      return new Response('{}', { status: 404 })
+    }) as typeof fetch
+    const { m, dataDir } = setup({ fetchImpl, downloadImpl: async (o) => { downloaded.push(o.dest); mkdirSync(join(o.dest, '..'), { recursive: true }); writeFileSync(o.dest, 'jar') } })
+    const paper = { ...input, loader: 'paper' as const, crossplay: true }
+    const a = await m.create('a', paper)
+    const b = await m.create('b', { ...paper, name: 'Zweiter' })
+    expect(a.crossplay).toBe(true)
+    expect([a.port, a.bedrockPort]).toEqual([25565, 19132])
+    expect([b.port, b.bedrockPort]).toEqual([25566, 19133])
+    const plugins = join(dataDir, 'servers', a.id, 'plugins')
+    expect(existsSync(join(plugins, 'Geyser-Spigot.jar'))).toBe(true)
+    expect(existsSync(join(plugins, 'floodgate-Spigot.jar'))).toBe(true)
+    const cfg = readFileSync(join(plugins, 'Geyser-Spigot', 'config.yml'), 'utf8')
+    expect(cfg).toContain('port: 19132')
+    expect(cfg).toContain('auth-type: floodgate')
+    // Vanilla kennt keine Plugins: Crossplay wird dort ignoriert.
+    const v = await m.create('v', { ...input, name: 'Pur', loader: 'vanilla', crossplay: true })
+    expect(v.crossplay).toBe(false)
+    expect(downloaded.some((d) => d.includes('Geyser'))).toBe(true)
   })
 })

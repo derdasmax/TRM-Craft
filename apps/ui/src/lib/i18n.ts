@@ -162,6 +162,16 @@ const de = {
   'wiz.tpl.minigames': 'Minigames',
   'wiz.tpl.minigames.desc': 'Paper, Adventure-Modus',
   'wiz.proxyNote': 'Proxys laufen auf Port 25577 und verbinden deine Server. Eine EULA ist nicht nötig.',
+  'wiz.edition.java': 'Java Edition',
+  'wiz.edition.bedrock': 'Bedrock Edition',
+  'wiz.group.bedrock': 'Bedrock',
+  'wiz.loader.bedrock.desc': 'Offizieller Server für Handy, Konsole und Windows. Nutzt keine Java-Mods.',
+  'wiz.crossplay': 'Bedrock-Spieler erlauben (Crossplay)',
+  'wiz.crossplay.hint': 'Installiert Geyser und Floodgate. Spieler mit Handy, Konsole oder Windows-Bedrock können beitreten.',
+  'wiz.tpl.crossplay': 'Crossplay',
+  'wiz.tpl.crossplay.desc': 'Paper mit Geyser und Floodgate',
+  'srv.bedrockPort': 'Bedrock-Port (UDP)',
+  'srv.crossplay': 'Crossplay',
 } as const
 
 type Key = keyof typeof de
@@ -327,6 +337,16 @@ const en: Record<Key, string> = {
   'wiz.tpl.minigames': 'Minigames',
   'wiz.tpl.minigames.desc': 'Paper, adventure mode',
   'wiz.proxyNote': 'Proxies run on port 25577 and connect your servers. No EULA needed.',
+  'wiz.edition.java': 'Java Edition',
+  'wiz.edition.bedrock': 'Bedrock Edition',
+  'wiz.group.bedrock': 'Bedrock',
+  'wiz.loader.bedrock.desc': 'Official server for phones, consoles and Windows. Does not use Java mods.',
+  'wiz.crossplay': 'Allow Bedrock players (crossplay)',
+  'wiz.crossplay.hint': 'Installs Geyser and Floodgate. Players on phones, consoles or Windows Bedrock can join.',
+  'wiz.tpl.crossplay': 'Crossplay',
+  'wiz.tpl.crossplay.desc': 'Paper with Geyser and Floodgate',
+  'srv.bedrockPort': 'Bedrock port (UDP)',
+  'srv.crossplay': 'Crossplay',
 }
 
 export const dictionaries = { de, en } as const
