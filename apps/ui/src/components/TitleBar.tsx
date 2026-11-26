@@ -22,7 +22,7 @@ function RemoteBadge() {
   const r = useStore((s) => s.remote)
   const setPage = useStore((s) => s.setPage)
   if (!r?.enabled || !r.listening) return null
-  const down = r.mode === 'tunnel' && r.tunnel.phase !== 'connected' && !r.tunnel.serviceInstalled
+  const down = r.mode === 'tunnel' && !!r.tunnel.host && r.tunnel.phase !== 'connected' && !r.tunnel.serviceInstalled
   const label = down ? t('rm.bar.down') : t('rm.bar.active')
   return (
     <button onClick={() => setPage('settings')} title={r.publicUrl ?? label} className="no-drag ml-4 inline-flex h-6 items-center gap-1.5 rounded-full bg-raised/70 px-2.5 text-[11.5px] text-muted transition-colors hover:text-fg">

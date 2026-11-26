@@ -24,7 +24,7 @@ Domain-Anbindung und einer Schnittstelle, über die später die TRM-Webseite die
 | **Leistung** | CPU, RAM, TPS, Spielerzahl als Verlauf, Warnung bei niedrigen TPS, Spark-Profiler, RAM-Empfehlung |
 | **Benachrichtigungen** | Windows-Benachrichtigungen und Discord-Webhook je Server |
 | **Netzwerk** | Öffentliche/lokale IP, Erreichbarkeits-Check, UPnP, Anleitung zur Portweiterleitung, Windows-Firewall-Regeln, Cloudflare-Domain mit SRV-Eintrag, Dynamisches DNS, Tunnel (playit.gg), Join-Karte mit QR-Code |
-| **Fernzugriff** | Ausgehende wss-Verbindung mit automatischem HTTPS-Polling als Fallback, Statusanzeige in der Titelleiste, Schnappschüsse und Live-Ereignisse, Kopplung per Code (in beide Richtungen), Rechte (Owner/Admin/Moderator/Ansehen), Upload von Mods/Modpacks/Welten mit Fortsetzen, Prüfsumme, Verlauf und Rückgängig |
+| **Fernzugriff** | Eigene API in der App (HTTPS-REST + WebSocket, nur auf `127.0.0.1`), von außen über einen **Cloudflare Tunnel** mit Einrichtungs-Assistent (oder Portfreigabe + eigenes Zertifikat), Status „Fernzugriff aktiv“ in der Titelleiste, Live-Ereignisse, Kopplung per Code (in beide Richtungen), Geräteliste mit Widerruf, Rollen (Owner/Admin/Moderator/Ansehen), Upload von Mods/Modpacks/Welten direkt aus dem Browser (Chunks, Fortsetzen, SHA-256, Verlauf mit Rückgängig) |
 | **Updates** | Automatische Updates der App aus GitHub-Releases, Rollback bei Absturz, Beta-Kanal. Server-Software-Updates (Paper, Purpur, Folia, Fabric ...) per Klick |
 | **Sonstiges** | Server klonen, bestehende Ordner importieren, Ressourcenlimits (CPU-Kerne, Priorität), Deutsch/Englisch, Hell/Dunkel, Akzentfarbe, Befehlspalette |
 
@@ -80,7 +80,7 @@ apps/
 packages/
   core/         Gemeinsame Typen und die Command-API (Befehle, Rollen, Ereignisse)
   servers/      Server-Verwaltung: Anbieter-APIs, Loader, Prozesse, Mods, Backups, Welten, Netzwerk, Zeitpläne
-  remote/       Fernzugriff: Protokoll, Kopplung, WebSocket-Client, Upload mit Fortsetzen
+  remote/       Fernzugriff: API-Server (Fastify + WebSocket), Geräte/Sitzungen, Kopplung, Upload mit Fortsetzen
 docs/           release.md, remote-api.md
 scripts/        Versionierung, Changelog, Mock-Webseite
 .github/        CI, Release-Pipeline, wöchentlicher API-Vertragstest
@@ -130,16 +130,24 @@ Im Server-Tab **Netzwerk**:
 
 ## Fernzugriff und Webseite
 
-Die App verbindet sich per ausgehender, verschlüsselter Verbindung mit dem **TRM-Relay** (Teil der TRM-Webseite). Dafür ist keine Portfreigabe nötig.
-Sind WebSockets blockiert, schaltet sie automatisch auf HTTPS-Long-Polling um. In der Titelleiste steht, ob die Verbindung steht.
+Alles läuft auf deinem Laptop, es gibt **keinen externen Server**. Die App bringt eine eigene Remote-API mit (HTTPS-REST + WebSocket), die nur
+auf `127.0.0.1` lauscht. Deine TRM-Webseite spricht über einen **Cloudflare Tunnel** (`cloudflared`, kostenlos) mit ihr.
 
-- Die Adresse des Relays trägst du unter *Einstellungen → Fernzugriff* ein, z. B. `wss://relay.<deine-trm-domain>`. Ich kenne deine Domain nicht,
-  deshalb gibt es bewusst keinen fest eingebauten Standardwert.
-- Der Vertrag zwischen App und Webseite steht in [docs/remote-api.md](docs/remote-api.md) (Kopplung in beide Richtungen, Befehle, Fehlercodes,
-  Schnappschüsse, Ereignisse, Datei-Upload mit Fortsetzen, Rechte, Versionierung) und maschinenlesbar in
-  [docs/remote-api.schema.json](docs/remote-api.schema.json). Ein Test sorgt dafür, dass das Schema nicht veraltet (`UPDATE_SCHEMA=1 pnpm test` erzeugt es neu).
-- `scripts/mock-site.cjs` ist ein Mock-Relay zum Ausprobieren (`MODE=ws` oder `MODE=poll`).
-- Der Fernzugriff ist **standardmäßig aus** und lässt sich jederzeit abschalten oder die Kopplung lösen.
+1. *Einstellungen → Netzwerk:* Cloudflare-API-Token speichern (Rechte: Konto → Cloudflare Tunnel: Bearbeiten, Zone → DNS: Bearbeiten, Konto: Lesen).
+2. *Einstellungen → Fernzugriff:* einschalten, bei **Erlaubte Webseiten** deine TRM-Adresse eintragen (z. B. `https://trm.<deine-domain>`, nur diese Origin darf die API im Browser aufrufen).
+3. **Tunnel einrichten:** Domain und Name eingeben (z. B. `craft` + `<deine-domain>`). Der Assistent legt Tunnel, Weiterleitung und DNS-Eintrag an, lädt `cloudflared`
+   und startet ihn. Optional als **Windows-Dienst** (UAC-Abfrage), damit er auch ohne die App läuft.
+4. **Koppeln:** Entweder zeigt die App einen Code (die Webseite sendet ihn an die API), oder die Webseite zeigt einen Code, den du in der App eingibst.
+   Gekoppelte Geräte siehst du in der App und kannst sie jederzeit widerrufen. Der Fernzugriff lässt sich komplett ausschalten.
+
+Alternative ohne Tunnel: Modus **Portfreigabe + eigenes Zertifikat** (Port am Router weiterleiten, PEM-Zertifikat z. B. von Let's Encrypt selbst erstellen).
+Die App stellt **keine** Zertifikate automatisch aus.
+
+- Der vollständige Vertrag (Kopplung, Sitzungen, REST, WebSocket, Ereignisse, Uploads, Fehlercodes, CORS, Versionierung) steht in
+  [docs/remote-api.md](docs/remote-api.md), maschinenlesbar in [docs/remote-api.schema.json](docs/remote-api.schema.json)
+  (`UPDATE_SCHEMA=1 pnpm test` erzeugt es neu; ein Test sorgt dafür, dass es nicht veraltet).
+- `scripts/demo-site.mjs` spielt den Ablauf einer Webseite nach (Kopplung, Sitzung, Befehle, WebSocket, Upload).
+- Der Fernzugriff ist **standardmäßig aus**.
 
 ## Sicherheit
 
@@ -149,7 +157,8 @@ Sind WebSockets blockiert, schaltet sie automatisch auf HTTPS-Long-Polling um. I
 - Dateimanager, Mods, Uploads und Modpacks sind auf den Server-Ordner begrenzt (Schutz vor Path-Traversal und Zip-Slip).
 - Downloads nur von festgelegten offiziellen Hosts, Prüfsummen werden geprüft, wo die Quelle sie liefert.
 - Konsolen- und Spielerbefehle können keine weiteren Befehle einschleusen (Zeilenumbrüche und Sonderzeichen werden abgelehnt).
-- Fernzugriff: nur `wss://`, lokale Befehle (Fenster, Dialoge, Geheimnisse, lokale Dateipfade) sind aus der Ferne gesperrt,
+- Fernzugriff: API nur auf `127.0.0.1` (im Tunnel-Modus), CORS und Host-Header nur für deine Adressen, Geräte-Token nur als Hash gespeichert,
+  kurzlebige Sitzungs-Token für Browser, Kopplungscodes einmalig und gedrosselt, lokale Befehle (Fenster, Dialoge, Geheimnisse, lokale Dateipfade) sind aus der Ferne gesperrt,
   Rollen mit lokaler Obergrenze, `owner`-Befehle nie remote. Uploads brauchen Upload-Recht, Prüfsumme und Typ-/Größenprüfung.
 - UPnP und Router-Antworten werden nur aus dem Heimnetz akzeptiert.
 - Die Minecraft-EULA wird **nie** automatisch akzeptiert.
@@ -159,17 +168,17 @@ Sind WebSockets blockiert, schaltet sie automatisch auf HTTPS-Long-Polling um. I
 Mojang (Versionen), PaperMC (Paper, Folia, Velocity, Waterfall), Purpur, Fabric, Quilt, Forge, NeoForge (Maven), Adoptium (Java),
 Modrinth, CurseForge (nur mit deinem Key), Hangar, GeyserMC, GitHub (Updates, playit.gg-Agent), ipify.org (öffentliche IP),
 mcsrvstat.us (Erreichbarkeits-Check, nur auf Knopfdruck), Cloudflare (nur wenn du eine Domain einrichtest),
-Discord (nur mit eingetragenem Webhook) und die TRM-Webseite (nur bei aktivem Fernzugriff).
+Discord (nur mit eingetragenem Webhook) und, nur bei aktivem Fernzugriff, Cloudflare (Tunnel) sowie GitHub (`cloudflared`). Deine TRM-Webseite ruft die App auf, nicht umgekehrt (Ausnahme: Kopplung mit Code der Webseite).
 
 ## Was noch zu prüfen ist
 
 Ehrlich getrennt nach "automatisch getestet" und "braucht deinen Windows-PC":
 
-**Automatisch getestet** (252 Tests, dazu 10 Live-Vertragstests gegen die echten APIs): Server-Lebenszyklus mit simuliertem Minecraft-Prozess, Downloads und Prüfsummen,
+**Automatisch getestet** (254 Tests, dazu 10 Live-Vertragstests gegen die echten APIs): Server-Lebenszyklus mit simuliertem Minecraft-Prozess, Downloads und Prüfsummen,
 Properties-Parser, Backups und Wiederherstellung, Welten, Zeitpläne, Mods und Modpacks, Pfad-Sicherheit, Rollen und Remote-Sperrliste,
 Upload mit Fortsetzen, UPnP/SOAP gegen Fake-Router, Cloudflare/DDNS gegen Fake-API, Versionierung und Changelog, Rollback-Logik,
-Updater-Countdown. Die echte Electron-App wurde zusätzlich headless gestartet und per IPC, gegen eine Mock-Webseite (Kopplung, Befehle,
-Upload) und visuell (Screenshots) geprüft.
+Updater-Countdown. Die echte Electron-App wurde zusätzlich headless gestartet und per IPC, mit `scripts/demo-site.mjs` gegen die laufende API (Kopplung, Sitzung, Befehle,
+WebSocket, Chunk-Upload, CORS/Host-Abweisung, Widerruf) und visuell (Screenshots) geprüft.
 
 **Braucht dich:**
 
@@ -179,7 +188,7 @@ Upload) und visuell (Screenshots) geprüft.
    Fabric, Quilt, Forge, NeoForge, Purpur, Bedrock-Download, Geyser, Modrinth, Hangar). Dabei fiel ein Fehler auf (Quilt ohne `stable`-Feld), der behoben wurde.
    Der Test läuft wöchentlich weiter und meldet, falls sich ein Format ändert. **Nicht** geprüft sind die Downloads selbst, Cloudflare und CurseForge (brauchen deine Keys).
 3. **Echtes Spiel.** Server erstellen und starten, Spieler joinen lassen (Java, Bedrock, Crossplay).
-4. **Router/Firewall.** UPnP, Windows-Firewall-Regeln (UAC-Abfrage), Cloudflare-Einrichtung, playit.gg-Agent.
+4. **Router/Firewall/Cloudflare.** UPnP, Windows-Firewall-Regeln (UAC-Abfrage), Cloudflare-DNS, **Tunnel-Assistent und `cloudflared`** (gegen eine Fake-API getestet, nicht gegen Cloudflare), Windows-Dienst, playit.gg-Agent.
 5. **Windows-Details.** Die CPU/RAM-Messung nutzt PowerShell (`Get-Process`), das Erkennen von Prozessen und das Beenden unter Windows.
 
 ## Bewusst nicht enthalten
