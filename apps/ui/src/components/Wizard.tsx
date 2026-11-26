@@ -2,14 +2,16 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { Check, FileArchive, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
-import { recommendRamMb, type CreateServerInput, type Loader, type SystemMemory, type VersionInfo } from '@trm/core'
+import { LOADERS, LOADER_INFO, recommendRamMb, type CreateServerInput, type Loader, type SystemMemory, type VersionInfo } from '@trm/core'
 import { Button, Segmented } from './ui'
 import { act } from '../lib/act'
 import { invoke, pathForFile } from '../lib/bridge'
 import { useT, type Key } from '../lib/i18n'
 import { useStore } from '../lib/store'
 
-const STEPS: Key[] = ['wiz.step.software', 'wiz.step.version', 'wiz.step.details', 'wiz.step.ram', 'wiz.step.world', 'wiz.step.finish']
+const STEP_LABEL = { software: 'wiz.step.software', version: 'wiz.step.version', details: 'wiz.step.details', ram: 'wiz.step.ram', world: 'wiz.step.world', finish: 'wiz.step.finish' } as const satisfies Record<string, Key>
+type StepKey = keyof typeof STEP_LABEL
+const GROUPS = ['server', 'mods', 'proxy'] as const
 const field = 'no-drag hairline h-10 w-full select-text rounded-ctl bg-raised/60 px-3.5 text-[13.5px] outline-none transition-colors placeholder:text-muted focus:border-accent/50'
 
 interface Draft {
@@ -29,6 +31,8 @@ interface Draft {
 
 const TEMPLATES: { id: string; name: Key; desc: Key; patch: Partial<Draft> }[] = [
   { id: 'survival', name: 'wiz.tpl.survival', desc: 'wiz.tpl.survival.desc', patch: { loader: 'paper', gamemode: 'survival', difficulty: 'normal' } },
+  { id: 'modded', name: 'wiz.tpl.modded', desc: 'wiz.tpl.modded.desc', patch: { loader: 'fabric', gamemode: 'survival', difficulty: 'normal' } },
+  { id: 'minigames', name: 'wiz.tpl.minigames', desc: 'wiz.tpl.minigames.desc', patch: { loader: 'paper', gamemode: 'adventure', difficulty: 'normal' } },
   { id: 'creative', name: 'wiz.tpl.creative', desc: 'wiz.tpl.creative.desc', patch: { loader: 'paper', gamemode: 'creative', difficulty: 'peaceful' } },
 ]
 
@@ -48,12 +52,15 @@ export function Wizard() {
 
   useEffect(() => { invoke('system.memory').then((m) => { setMem(m); setD((x) => ({ ...x, ramMb: recommendRamMb(m.totalMb) })) }) }, [])
   useEffect(() => {
-    setVersions(null); setVError(false)
+    setVersions(null); setVError(false); setQuery('')
     invoke('versions.list', d.loader).then((v) => { setVersions(v); setD((x) => (v.some((i) => i.id === x.mcVersion) ? x : { ...x, mcVersion: v[0]?.id ?? '' })) }).catch(() => setVError(true))
   }, [d.loader])
 
   const shown = useMemo(() => (versions ?? []).filter((v) => v.id.includes(query.trim())).slice(0, 80), [versions, query])
-  const valid = [true, !!d.mcVersion, d.name.trim().length > 0, d.ramMb >= 512, d.worldMode === 'new' || !!d.worldZip, d.eula][step]!
+  const proxy = LOADER_INFO[d.loader].proxy
+  const steps: StepKey[] = proxy ? ['software', 'version', 'details', 'ram', 'finish'] : ['software', 'version', 'details', 'ram', 'world', 'finish']
+  const key = steps[Math.min(step, steps.length - 1)]!
+  const valid = { software: true, version: !!d.mcVersion, details: d.name.trim().length > 0, ram: d.ramMb >= 512, world: d.worldMode === 'new' || !!d.worldZip, finish: proxy || d.eula }[key]
   const token = useMemo(() => `create-${Date.now()}`, [])
   const p = progress[token]
 
@@ -61,8 +68,10 @@ export function Wizard() {
     setBusy(t('wiz.creating'))
     const input: CreateServerInput = {
       name: d.name.trim(), loader: d.loader, mcVersion: d.mcVersion, ramMb: d.ramMb, acceptEula: true,
-      motd: d.motd || undefined, gamemode: d.gamemode, difficulty: d.difficulty, maxPlayers: d.maxPlayers,
-      seed: d.worldMode === 'new' && d.seed ? d.seed : undefined, worldZip: d.worldMode === 'import' && d.worldZip ? d.worldZip : undefined,
+      ...(proxy ? {} : {
+        motd: d.motd || undefined, gamemode: d.gamemode, difficulty: d.difficulty, maxPlayers: d.maxPlayers,
+        seed: d.worldMode === 'new' && d.seed ? d.seed : undefined, worldZip: d.worldMode === 'import' && d.worldZip ? d.worldZip : undefined,
+      }),
     }
     const r = await act(() => invoke('servers.create', { token, input }))
     setBusy(null)
@@ -78,10 +87,10 @@ export function Wizard() {
           <button onClick={() => !busy && close(false)} aria-label={t('wiz.cancel')} className="no-drag grid h-8 w-8 place-items-center rounded-ctl text-muted transition-colors hover:bg-raised hover:text-fg"><X size={16} strokeWidth={1.75} /></button>
         </div>
         <ol className="flex gap-1.5 px-7 pt-4" aria-label="Schritte">
-          {STEPS.map((k, i) => (
+          {steps.map((k, i) => (
             <li key={k} className="flex-1" aria-current={i === step ? 'step' : undefined}>
               <div className={clsx('h-1 rounded-full transition-colors duration-300', i <= step ? 'bg-accent' : 'bg-raised')} />
-              <div className={clsx('mt-1.5 hidden text-[11.5px] sm:block', i === step ? 'text-fg' : 'text-muted')}>{t(k)}</div>
+              <div className={clsx('mt-1.5 hidden text-[11.5px] sm:block', i === step ? 'text-fg' : 'text-muted')}>{t(STEP_LABEL[k])}</div>
             </li>
           ))}
         </ol>
@@ -89,7 +98,7 @@ export function Wizard() {
         <div className="min-h-[300px] flex-1 overflow-y-auto px-7 py-6">
           <AnimatePresence mode="wait" initial={false}>
             <motion.div key={step} initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -8 }} transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}>
-              {step === 0 && (
+              {key === 'software' && (
                 <div className="space-y-5">
                   <div>
                     <div className="mb-2 text-[12px] font-semibold uppercase tracking-[0.12em] text-muted">{t('wiz.template')}</div>
@@ -102,18 +111,23 @@ export function Wizard() {
                       ))}
                     </div>
                   </div>
-                  <div className="grid gap-2 sm:grid-cols-2" role="radiogroup">
-                    {(['paper', 'vanilla'] as const).map((l) => (
-                      <button key={l} role="radio" aria-checked={d.loader === l} onClick={() => set({ loader: l })} className={clsx('no-drag rounded-card p-4 text-left transition-[transform,border-color] duration-150 active:scale-[0.98]', d.loader === l ? 'border border-accent bg-accent/5' : 'hairline bg-raised/40 hover:bg-raised')}>
-                        <div className="font-display text-[15px] font-semibold">{t(`wiz.loader.${l}` as Key)}</div>
-                        <div className="mt-1 text-[12.5px] leading-relaxed text-muted">{t(`wiz.loader.${l}.desc` as Key)}</div>
-                      </button>
-                    ))}
-                  </div>
+                  {GROUPS.map((g) => (
+                    <div key={g}>
+                      <div className="mb-2 text-[12px] font-semibold uppercase tracking-[0.12em] text-muted">{t(`wiz.group.${g}` as Key)}</div>
+                      <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label={t(`wiz.group.${g}` as Key)}>
+                        {LOADERS.filter((l) => LOADER_INFO[l].group === g).map((l) => (
+                          <button key={l} role="radio" aria-checked={d.loader === l} onClick={() => set({ loader: l })} className={clsx('no-drag rounded-card p-3.5 text-left transition-[transform,border-color] duration-150 active:scale-[0.98]', d.loader === l ? 'border border-accent bg-accent/5' : 'hairline bg-raised/40 hover:bg-raised')}>
+                            <div className="font-display text-[14.5px] font-semibold">{LOADER_INFO[l].label}</div>
+                            <div className="mt-1 text-[12px] leading-relaxed text-muted">{t(`wiz.loader.${l}.desc` as Key)}</div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
 
-              {step === 1 && (
+              {key === 'version' && (
                 <div>
                   <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('wiz.version.search')} aria-label={t('wiz.version.search')} className={field} />
                   <div className="mt-3 grid max-h-[300px] grid-cols-3 gap-2 overflow-y-auto sm:grid-cols-4">
@@ -124,19 +138,20 @@ export function Wizard() {
                 </div>
               )}
 
-              {step === 2 && (
+              {key === 'details' && (
                 <div className="space-y-4">
                   <label className="block"><span className="mb-1.5 block text-[12.5px] text-muted">{t('wiz.name')}</span><input autoFocus value={d.name} maxLength={40} onChange={(e) => set({ name: e.target.value })} className={field} /></label>
-                  <label className="block"><span className="mb-1.5 block text-[12.5px] text-muted">{t('wiz.motd')}</span><input value={d.motd} maxLength={200} onChange={(e) => set({ motd: e.target.value })} className={field} /></label>
-                  <div className="grid gap-4 sm:grid-cols-2">
+                  {proxy && <p className="text-[12.5px] text-muted">{t('wiz.proxyNote')}</p>}
+                  {!proxy && <label className="block"><span className="mb-1.5 block text-[12.5px] text-muted">{t('wiz.motd')}</span><input value={d.motd} maxLength={200} onChange={(e) => set({ motd: e.target.value })} className={field} /></label>}
+                  {!proxy && <><div className="grid gap-4 sm:grid-cols-2">
                     <div><span className="mb-1.5 block text-[12.5px] text-muted">{t('wiz.gamemode')}</span><Segmented id="gm" value={d.gamemode} onChange={(gamemode) => set({ gamemode })} options={(['survival', 'creative', 'adventure'] as const).map((v) => ({ value: v, label: t(`wiz.gm.${v}` as Key) }))} /></div>
                     <label className="block"><span className="mb-1.5 block text-[12.5px] text-muted">{t('wiz.maxPlayers')}</span><input type="number" min={1} max={1000} value={d.maxPlayers} onChange={(e) => set({ maxPlayers: Math.max(1, Math.min(1000, Number(e.target.value) || 1)) })} className={clsx(field, 'font-mono tabular-nums')} /></label>
                   </div>
-                  <div><span className="mb-1.5 block text-[12.5px] text-muted">{t('wiz.difficulty')}</span><Segmented id="diff" value={d.difficulty} onChange={(difficulty) => set({ difficulty })} options={(['peaceful', 'easy', 'normal', 'hard'] as const).map((v) => ({ value: v, label: t(`wiz.diff.${v}` as Key) }))} /></div>
+                  <div><span className="mb-1.5 block text-[12.5px] text-muted">{t('wiz.difficulty')}</span><Segmented id="diff" value={d.difficulty} onChange={(difficulty) => set({ difficulty })} options={(['peaceful', 'easy', 'normal', 'hard'] as const).map((v) => ({ value: v, label: t(`wiz.diff.${v}` as Key) }))} /></div></>}
                 </div>
               )}
 
-              {step === 3 && (
+              {key === 'ram' && (
                 <div>
                   <div className="text-[12.5px] text-muted">{t('wiz.ram')}</div>
                   <div className="mt-2 font-mono text-[34px] font-medium tabular-nums">{gb(d.ramMb)} <span className="text-[16px] text-muted">GB</span></div>
@@ -145,7 +160,7 @@ export function Wizard() {
                 </div>
               )}
 
-              {step === 4 && (
+              {key === 'world' && (
                 <div className="space-y-4">
                   <Segmented id="world" value={d.worldMode} onChange={(worldMode) => set({ worldMode })} options={[{ value: 'new', label: t('wiz.world.new') }, { value: 'import', label: t('wiz.world.import') }]} />
                   {d.worldMode === 'new' ? (
@@ -160,22 +175,22 @@ export function Wizard() {
                 </div>
               )}
 
-              {step === 5 && (
+              {key === 'finish' && (
                 <div className="space-y-5">
                   <div className="hairline rounded-card bg-raised/40 p-4">
                     <div className="mb-2 text-[12px] font-semibold uppercase tracking-[0.12em] text-muted">{t('wiz.summary')}</div>
                     <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 text-[13px]">
                       <dt className="text-muted">{t('wiz.name')}</dt><dd className="font-medium">{d.name}</dd>
-                      <dt className="text-muted">{t('wiz.step.software')}</dt><dd className="font-mono">{d.loader} {d.mcVersion}</dd>
+                      <dt className="text-muted">{t('wiz.step.software')}</dt><dd className="font-mono">{LOADER_INFO[d.loader].label} {d.mcVersion}</dd>
                       <dt className="text-muted">{t('wiz.ram')}</dt><dd className="font-mono">{gb(d.ramMb)} GB</dd>
-                      <dt className="text-muted">{t('wiz.gamemode')}</dt><dd>{t(`wiz.gm.${d.gamemode}` as Key)}, {t(`wiz.diff.${d.difficulty}` as Key)}</dd>
+                      {!proxy && <><dt className="text-muted">{t('wiz.gamemode')}</dt><dd>{t(`wiz.gm.${d.gamemode}` as Key)}, {t(`wiz.diff.${d.difficulty}` as Key)}</dd></>}
                     </dl>
                   </div>
-                  {/* EULA: nie automatisch akzeptieren, nur aktive Zustimmung. */}
-                  <label className="flex cursor-pointer items-start gap-3">
+                  {/* EULA: nie automatisch akzeptieren, nur aktive Zustimmung. Proxys brauchen keine. */}
+                  {!proxy && <label className="flex cursor-pointer items-start gap-3">
                     <button type="button" role="checkbox" aria-checked={d.eula} onClick={() => set({ eula: !d.eula })} className={clsx('no-drag mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-[6px] transition-colors duration-150', d.eula ? 'bg-accent text-accent-fg' : 'hairline bg-raised')}>{d.eula && <Check size={13} strokeWidth={3} />}</button>
                     <span className="text-[13.5px]">{t('wiz.eula')} <button type="button" onClick={() => invoke('shell.openExternal', 'https://aka.ms/MinecraftEULA')} className="no-drag text-accent underline underline-offset-2">{t('wiz.eula.link')}</button></span>
-                  </label>
+                  </label>}
                   {busy && (
                     <div role="status" className="space-y-2">
                       <div className="text-[13px] text-muted">{p?.label ?? busy}</div>
@@ -190,7 +205,7 @@ export function Wizard() {
 
         <div className="flex justify-between border-t border-line/[0.08] px-7 py-4">
           <Button variant="ghost" disabled={step === 0 || !!busy} onClick={() => setStep(step - 1)}>{t('wiz.back')}</Button>
-          {step < STEPS.length - 1 ? <Button disabled={!valid} onClick={() => setStep(step + 1)}>{t('wiz.next')}</Button> : <Button disabled={!valid || !!busy} onClick={create}>{busy ?? t('wiz.create')}</Button>}
+          {step < steps.length - 1 ? <Button disabled={!valid} onClick={() => setStep(step + 1)}>{t('wiz.next')}</Button> : <Button disabled={!valid || !!busy} onClick={create}>{busy ?? t('wiz.create')}</Button>}
         </div>
       </motion.div>
     </motion.div>

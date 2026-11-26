@@ -11,6 +11,8 @@ describe('parseLogLine', () => {
     expect(parseLogLine('[12:00:00] [Server thread/INFO]: Done (3.214s)! For help, type "help"')).toEqual({ type: 'done' })
     expect(parseLogLine('[12:00:01] [Server thread/INFO]: Steve joined the game')).toEqual({ type: 'join', name: 'Steve' })
     expect(parseLogLine('[12:00:02] [Server thread/INFO]: .BedrockSam left the game')).toEqual({ type: 'leave', name: '.BedrockSam' })
+    expect(parseLogLine('[19:02:11 INFO]: Done (3.11s)!')).toEqual({ type: 'done' })
+    expect(parseLogLine('12:00:00 [INFO] Listening on /0.0.0.0:25577')).toEqual({ type: 'done' })
     expect(parseLogLine('[12:00:03] [Server thread/INFO]: <Steve> Steve joined the game')).toBeNull()
   })
 })

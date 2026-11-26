@@ -149,4 +149,50 @@ describe('ServerManager', () => {
     m.update(r.id, { port: 25999 })
     expect(m.getProperties(r.id)['server-port']).toBe('25999')
   })
+
+  it('installiert Forge über den Installer und startet per Argument-Datei', async () => {
+    const calls: string[][] = []
+    const { m, dataDir } = setup({
+      installerRunner: async ({ args, cwd }) => {
+        calls.push(args)
+        const lib = join(cwd, 'libraries/net/minecraftforge/forge/1.20.1-47.2.0')
+        mkdirSync(lib, { recursive: true })
+        writeFileSync(join(lib, 'unix_args.txt'), '')
+      },
+      fetchImpl: (async (input: string | URL | Request) => {
+        const url = String(input)
+        if (url.includes('promotions_slim')) return new Response(JSON.stringify({ promos: { '1.20.1-recommended': '47.2.0' } }))
+        if (url.includes('version_manifest')) return new Response(JSON.stringify({ latest: { release: '1.20.1', snapshot: 'x' }, versions: [{ id: '1.20.1', type: 'release', url: 'https://piston-meta.mojang.com/v.json', releaseTime: '2023-06-12T00:00:00+00:00' }] }))
+        if (url.endsWith('/v.json')) return new Response(JSON.stringify({ id: '1.20.1', downloads: { server: { url: 'https://piston-data.mojang.com/s.jar', sha1: 'a', size: 1 } }, javaVersion: { majorVersion: 17 } }))
+        return new Response('{}', { status: 404 })
+      }) as typeof fetch,
+    })
+    const r = await m.create('t', { ...input, loader: 'forge', mcVersion: '1.20.1' })
+    expect(calls[0]).toEqual(['-jar', 'forge-installer.jar', '--installServer'])
+    expect(r.javaMajor).toBe(17)
+    expect(r.build).toBe('47.2.0')
+    expect(r.launch).toEqual({ type: 'args', argsFile: 'libraries/net/minecraftforge/forge/1.20.1-47.2.0/{platform}_args.txt' })
+    expect(existsSync(join(dataDir, 'servers', r.id, 'mods'))).toBe(true)
+    expect(existsSync(join(dataDir, 'servers', r.id, 'forge-installer.jar'))).toBe(false)
+  })
+
+  it('legt Proxys ohne EULA und Properties an, aber nur auf Port 25577', async () => {
+    const proxyFetch = (async (input: string | URL | Request) => {
+      const url = String(input)
+      if (url.includes('/v3/projects/velocity/versions/3.4.0-SNAPSHOT/builds')) return new Response(JSON.stringify([{ id: 1, channel: 'STABLE', downloads: { 'server:default': { name: 'v.jar', url: 'https://fill-data.papermc.io/v.jar', checksums: { sha256: 'x' } } } }]))
+      return new Response('{}', { status: 404 })
+    }) as typeof fetch
+    const { m, dataDir, used } = setup({ fetchImpl: proxyFetch })
+    const r = await m.create('t', { name: 'Netzwerk', loader: 'velocity', mcVersion: '3.4.0-SNAPSHOT', ramMb: 512, acceptEula: true })
+    expect(r.port).toBe(25577)
+    expect(r.javaMajor).toBe(21)
+    expect(r.eulaAcceptedAt).toBeNull()
+    expect(existsSync(join(dataDir, 'servers', r.id, 'eula.txt'))).toBe(false)
+    expect(existsSync(join(dataDir, 'servers', r.id, 'server.properties'))).toBe(false)
+    expect(() => m.update(r.id, { port: 25999 })).toThrow(/Proxys/)
+    used.add(25577)
+    const { m: m2, used: u2 } = setup({ fetchImpl: proxyFetch })
+    u2.add(25577)
+    await expect(m2.create('t2', { name: 'Zweiter', loader: 'velocity', mcVersion: '3.4.0-SNAPSHOT', ramMb: 512, acceptEula: true })).rejects.toThrow(/25577/)
+  })
 })

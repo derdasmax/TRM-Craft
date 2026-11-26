@@ -15,6 +15,8 @@ export function aikarFlags(ramMb: number): string[] {
   ]
 }
 
-export function jvmArgs(r: Pick<ServerRecord, 'ramMb' | 'jvmPreset'>, jar = 'server.jar'): string[] {
-  return [`-Xms${r.ramMb}M`, `-Xmx${r.ramMb}M`, ...(r.jvmPreset === 'aikar' ? aikarFlags(r.ramMb) : []), '-jar', jar, 'nogui']
+export function jvmArgs(r: Pick<ServerRecord, 'ramMb' | 'jvmPreset' | 'launch'>, platform: NodeJS.Platform = process.platform): string[] {
+  const mem = [`-Xms${r.ramMb}M`, `-Xmx${r.ramMb}M`, ...(r.jvmPreset === 'aikar' ? aikarFlags(r.ramMb) : [])]
+  if (r.launch.type === 'args') return [...mem, `@${r.launch.argsFile.replace('{platform}', platform === 'win32' ? 'win' : 'unix')}`, 'nogui']
+  return [...mem, '-jar', r.launch.jar, 'nogui']
 }

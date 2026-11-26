@@ -3,6 +3,9 @@ import { describe, expect, it } from 'vitest'
 import { fetchManifest, listFromManifest, resolveVanilla } from './mojang'
 import { listPaperVersions, resolvePaperBuild } from './paper'
 import { resolveJre } from './adoptium'
+import { listMetaGameVersions, resolveFabric, resolveQuilt } from './fabric'
+import { listForgeVersions, listNeoForgeVersions, resolveForge, resolveNeoForge } from './forge'
+import { listPurpurVersions, resolvePurpur } from './purpur'
 
 const live = process.env.LIVE_API === '1'
 
@@ -28,4 +31,36 @@ describe.runIf(live)('Live-APIs', () => {
     expect(j.url).toMatch(/^https:\/\//)
     expect(j.name).toMatch(/\.zip$/)
   }, 30_000)
+
+  it('Fabric und Quilt', async () => {
+    const v = await listMetaGameVersions('fabric')
+    expect(v.length).toBeGreaterThan(10)
+    expect((await resolveFabric(v[0]!.id)).url).toContain('/server/jar')
+    expect((await resolveQuilt()).installerUrl).toMatch(/quilt-installer-.*\.jar$/)
+    expect((await listMetaGameVersions('quilt')).length).toBeGreaterThan(5)
+  }, 30_000)
+
+  it('Forge und NeoForge', async () => {
+    const f = await listForgeVersions()
+    expect(f.length).toBeGreaterThan(10)
+    expect((await resolveForge(f[0]!.id)).installerUrl).toContain('-installer.jar')
+    const n = await listNeoForgeVersions()
+    expect(n.length).toBeGreaterThan(3)
+    expect((await resolveNeoForge(n[0]!.id)).installerUrl).toContain('-installer.jar')
+  }, 30_000)
+
+  it('Purpur', async () => {
+    const v = await listPurpurVersions()
+    expect(v.length).toBeGreaterThan(10)
+    const r = await resolvePurpur(v[0]!.id)
+    expect(r.md5).toMatch(/^[0-9a-f]{32}$/)
+  }, 30_000)
+
+  it('Folia, Velocity, Waterfall über die PaperMC-API', async () => {
+    for (const project of ['folia', 'velocity', 'waterfall']) {
+      const list = await listPaperVersions(project)
+      expect(list.length, project).toBeGreaterThan(0)
+      expect((await resolvePaperBuild(list[0]!.id, project)).url, project).toMatch(/^https:\/\//)
+    }
+  }, 60_000)
 })

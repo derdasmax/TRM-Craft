@@ -15,7 +15,8 @@ export type LogEvent =
   | { type: 'leave'; name: string }
 
 const NAME = '[A-Za-z0-9_.]{1,32}'
-const DONE = /\]: Done \([\d.,]+s\)! For help, type "help"/
+// Paper/Vanilla/Forge: "Done (3.2s)! For help ...", Velocity: "Done (3.1s)!", BungeeCord/Waterfall: "Listening on /0.0.0.0:25577"
+const DONE = /\]: Done \([\d.,]+s\)!|Listening on \//
 const JOIN = new RegExp(`\\]: (${NAME}) joined the game\\s*$`)
 const LEAVE = new RegExp(`\\]: (${NAME}) left the game\\s*$`)
 

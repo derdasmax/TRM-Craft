@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, w
 import os from 'node:os'
 import { join, resolve, sep } from 'node:path'
 import {
-  CreateServerInputSchema, SERVER_ID, ServerRecordSchema,
+  CreateServerInputSchema, LOADER_INFO, SERVER_ID, ServerRecordSchema,
   type AppEvents, type CreateServerInput, type CrashReport, type ServerRecord, type ServerView, type SystemMemory, type VersionInfo, type Loader,
 } from '@trm/core'
 import { analyzeCrash } from './crash'
@@ -12,9 +12,8 @@ import { downloadFile, type FetchLike } from './download'
 import { ensureJava } from './java'
 import { jvmArgs } from './jvm'
 import { findFreePort, isPortFree } from './ports'
-import { javaForMinecraft } from './providers/adoptium'
-import { fetchManifest, listFromManifest, resolveVanilla } from './providers/mojang'
-import { listPaperVersions, resolvePaperBuild } from './providers/paper'
+import { runInstaller, type InstallerRunner } from './installer'
+import { LOADER_DEFS } from './loaders'
 import { parseProperties, updateProperties } from './properties'
 import { ServerProcess, type LaunchSpec } from './process'
 
@@ -29,6 +28,9 @@ export interface ManagerDeps {
   launcher?: (r: ServerRecord, javaPath: string, dir: string) => LaunchSpec
   ensureJavaImpl?: typeof ensureJava
   downloadImpl?: typeof downloadFile
+  installerRunner?: InstallerRunner
+  /** Nur für Tests: ersetzt die Loader-Installation. */
+  loaderDefs?: typeof LOADER_DEFS
   portCheck?: (p: number) => Promise<boolean>
   restartDelayMs?: (attempt: number) => number
 }
@@ -136,8 +138,7 @@ export class ServerManager {
   }
 
   async versions(loader: Loader): Promise<VersionInfo[]> {
-    if (loader === 'paper') return listPaperVersions('paper', this.d.fetchImpl)
-    return listFromManifest(await fetchManifest(this.d.fetchImpl))
+    return (this.d.loaderDefs ?? LOADER_DEFS)[loader].versions(this.d.fetchImpl)
   }
 
   private usedPorts(except?: string): Set<number> {
@@ -153,50 +154,47 @@ export class ServerManager {
     const input = CreateServerInputSchema.parse(raw) // erzwingt acceptEula === true
     const progress = (label: string, percent: number | null) => this.d.emit('servers.progress', { token, label, percent })
 
+    const info = LOADER_INFO[input.loader]
+    const defs = this.d.loaderDefs ?? LOADER_DEFS
     const owner = input.port ? this.records.find((r) => r.port === input.port) : undefined
     if (owner) throw new Error(`Port ${input.port} ist bereits dem Server „${owner.name}“ zugewiesen.`)
-    const port = input.port ?? (await findFreePort(25565, this.usedPorts(), (p) => this.portFree(p)))
-    if (input.port && !(await this.portFree(port))) throw new Error(`Port ${port} ist auf diesem PC bereits belegt.`)
+    const port = input.port ?? (await findFreePort(info.defaultPort ?? 25565, this.usedPorts(), (p) => this.portFree(p)))
+    if (!(await this.portFree(port))) throw new Error(`Port ${port} ist auf diesem PC bereits belegt.`)
+    // Proxys lesen ihren Port aus einer Konfigurationsdatei, die erst beim ersten Start entsteht.
+    if (info.proxy && port !== info.defaultPort) throw new Error(`${info.label} läuft zunächst auf Port ${info.defaultPort}. Dieser Port ist belegt. Beende das andere Programm oder ändere den Port später in der Konfigurationsdatei.`)
 
     const id = `${slug(input.name)}-${randomBytes(2).toString('hex')}`
     const dir = this.serverDir(id)
     mkdirSync(dir, { recursive: true })
     try {
       progress('Version wird gesucht …', null)
-      const vanilla = await resolveVanilla(input.mcVersion, this.d.fetchImpl).catch((e) => {
-        if (input.loader === 'vanilla') throw e
-        return null
+      const javaMajor = await defs[input.loader].javaMajor(input.mcVersion, this.d.fetchImpl)
+      const java = await (this.d.ensureJavaImpl ?? ensureJava)({ runtimesDir: this.runtimesDir, major: javaMajor, platform: this.d.platform, fetchImpl: this.d.fetchImpl, onProgress: progress })
+      const result = await defs[input.loader].install({
+        dir, version: input.mcVersion, java, platform: this.d.platform ?? process.platform, fetchImpl: this.d.fetchImpl,
+        download: this.d.downloadImpl ?? downloadFile, run: this.d.installerRunner ?? runInstaller, progress,
       })
-      const javaMajor = vanilla?.javaMajor ?? javaForMinecraft(input.mcVersion)
-      const dl = this.d.downloadImpl ?? downloadFile
-      let build: string | undefined
-      if (input.loader === 'vanilla') {
-        if (!vanilla) throw new Error('Version nicht gefunden.')
-        await dl({ url: vanilla.url, dest: join(dir, 'server.jar'), sha1: vanilla.sha1, fetchImpl: this.d.fetchImpl, onProgress: (d, t) => progress('Server-Software wird geladen …', t ? Math.round((d / t) * 100) : null) })
-      } else {
-        const b = await resolvePaperBuild(input.mcVersion, 'paper', this.d.fetchImpl)
-        build = b.build
-        await dl({ url: b.url, dest: join(dir, 'server.jar'), sha256: b.sha256, fetchImpl: this.d.fetchImpl, onProgress: (d, t) => progress('Server-Software wird geladen …', t ? Math.round((d / t) * 100) : null) })
-      }
-      await (this.d.ensureJavaImpl ?? ensureJava)({ runtimesDir: this.runtimesDir, major: javaMajor, platform: this.d.platform, fetchImpl: this.d.fetchImpl, onProgress: progress })
+      if (info.extFolder) mkdirSync(join(dir, info.extFolder), { recursive: true })
 
-      const acceptedAt = new Date().toISOString()
-      writeFileSync(join(dir, 'eula.txt'), `# Vom Nutzer in TRM-Craft akzeptiert am ${acceptedAt}\n# https://aka.ms/MinecraftEULA\neula=true\n`)
-      const props: Record<string, string> = { 'server-port': String(port) }
-      if (input.motd) props.motd = input.motd.replace(/[\r\n]/g, ' ')
-      if (input.seed) props['level-seed'] = input.seed.replace(/[\r\n]/g, '')
-      if (input.gamemode) props.gamemode = input.gamemode
-      if (input.difficulty) props.difficulty = input.difficulty
-      if (input.maxPlayers) props['max-players'] = String(input.maxPlayers)
-      writeFileSync(join(dir, 'server.properties'), updateProperties('', props))
-      if (input.worldZip) {
-        progress('Welt wird importiert …', null)
-        await this.importWorld(input.worldZip, dir)
+      const acceptedAt = info.proxy ? null : new Date().toISOString()
+      if (!info.proxy) {
+        writeFileSync(join(dir, 'eula.txt'), `# Vom Nutzer in TRM-Craft akzeptiert am ${acceptedAt}\n# https://aka.ms/MinecraftEULA\neula=true\n`)
+        const props: Record<string, string> = { 'server-port': String(port) }
+        if (input.motd) props.motd = input.motd.replace(/[\r\n]/g, ' ')
+        if (input.seed) props['level-seed'] = input.seed.replace(/[\r\n]/g, '')
+        if (input.gamemode) props.gamemode = input.gamemode
+        if (input.difficulty) props.difficulty = input.difficulty
+        if (input.maxPlayers) props['max-players'] = String(input.maxPlayers)
+        writeFileSync(join(dir, 'server.properties'), updateProperties('', props))
+        if (input.worldZip) {
+          progress('Welt wird importiert …', null)
+          await this.importWorld(input.worldZip, dir)
+        }
       }
 
       const record = ServerRecordSchema.parse({
-        id, name: input.name, edition: 'java', loader: input.loader, mcVersion: input.mcVersion, build, port, ramMb: input.ramMb,
-        jvmPreset: 'aikar', javaMajor, autoRestart: true, autostart: false, eulaAcceptedAt: acceptedAt, createdAt: new Date().toISOString(),
+        id, name: input.name, edition: 'java', loader: input.loader, mcVersion: input.mcVersion, build: result.build, port, ramMb: input.ramMb,
+        jvmPreset: 'aikar', javaMajor, launch: result.launch, autoRestart: true, autostart: false, eulaAcceptedAt: acceptedAt, createdAt: new Date().toISOString(),
       })
       this.records.push(record)
       this.save()
@@ -267,9 +265,10 @@ export class ServerManager {
     const rt = this.rt(id)
     if (rt.proc.status === 'starting' || rt.proc.status === 'running' || rt.proc.status === 'stopping') return
     clearTimeout(rt.restartTimer)
-    if (!r.eulaAcceptedAt) throw new Error('Die Minecraft-EULA wurde nicht akzeptiert.')
+    const proxy = LOADER_INFO[r.loader].proxy
+    if (!proxy && !r.eulaAcceptedAt) throw new Error('Die Minecraft-EULA wurde nicht akzeptiert.')
     const dir = this.serverDir(id)
-    if (!existsSync(join(dir, 'server.jar'))) throw new Error('server.jar fehlt. Bitte Server-Software neu laden.')
+    if (r.launch.type === 'jar' && !existsSync(join(dir, r.launch.jar))) throw new Error(`${r.launch.jar} fehlt. Erstelle den Server neu.`)
     for (const other of this.records) {
       if (other.id !== id && other.port === r.port && this.runtimes.get(other.id)?.proc.status === 'running') throw new Error(`Port ${r.port} wird bereits von „${other.name}“ genutzt.`)
     }
@@ -280,7 +279,7 @@ export class ServerManager {
     })
     rt.lastCrash = undefined
     rt.logs.length = 0
-    const spec = this.d.launcher?.(r, java, dir) ?? { command: java, args: jvmArgs(r), cwd: dir }
+    const spec = this.d.launcher?.(r, java, dir) ?? { command: java, args: jvmArgs(r, this.d.platform), cwd: dir }
     rt.proc.start(spec)
   }
 
@@ -318,9 +317,10 @@ export class ServerManager {
       const clash = this.records.find((x) => x.id !== id && x.port === patch.port)
       if (clash) throw new Error(`Port ${patch.port} gehört bereits zu „${clash.name}“.`)
     }
+    if (patch.port !== undefined && patch.port !== r.port && LOADER_INFO[r.loader].proxy) throw new Error('Der Port eines Proxys wird in dessen Konfigurationsdatei geändert.')
     const next = ServerRecordSchema.parse({ ...r, ...patch })
     this.records[this.records.indexOf(r)] = next
-    if (patch.port !== undefined) this.setProperties(id, { 'server-port': String(patch.port) })
+    if (patch.port !== undefined && patch.port !== r.port) this.setProperties(id, { 'server-port': String(patch.port) })
     this.save()
     this.push(id)
     return next

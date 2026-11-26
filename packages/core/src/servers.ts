@@ -1,8 +1,43 @@
 import { z } from 'zod'
 
 export const SERVER_ID = /^[a-z0-9][a-z0-9-]{0,39}$/
-export const LoaderSchema = z.enum(['vanilla', 'paper'])
+export const LOADERS = ['paper', 'purpur', 'folia', 'spigot', 'vanilla', 'fabric', 'quilt', 'forge', 'neoforge', 'velocity', 'waterfall', 'bungeecord'] as const
+export const LoaderSchema = z.enum(LOADERS)
 export type Loader = z.infer<typeof LoaderSchema>
+
+export interface LoaderInfo {
+  label: string
+  group: 'server' | 'mods' | 'proxy'
+  /** Ordner für Erweiterungen (Plugins oder Mods). */
+  extFolder: 'plugins' | 'mods' | null
+  /** Proxys haben weder EULA noch server.properties. */
+  proxy: boolean
+  /** Standard-Port, falls vom Minecraft-Standard abweichend. */
+  defaultPort?: number
+}
+
+export const LOADER_INFO: Record<Loader, LoaderInfo> = {
+  paper: { label: 'Paper', group: 'server', extFolder: 'plugins', proxy: false },
+  purpur: { label: 'Purpur', group: 'server', extFolder: 'plugins', proxy: false },
+  folia: { label: 'Folia', group: 'server', extFolder: 'plugins', proxy: false },
+  spigot: { label: 'Spigot', group: 'server', extFolder: 'plugins', proxy: false },
+  vanilla: { label: 'Vanilla', group: 'server', extFolder: null, proxy: false },
+  fabric: { label: 'Fabric', group: 'mods', extFolder: 'mods', proxy: false },
+  quilt: { label: 'Quilt', group: 'mods', extFolder: 'mods', proxy: false },
+  forge: { label: 'Forge', group: 'mods', extFolder: 'mods', proxy: false },
+  neoforge: { label: 'NeoForge', group: 'mods', extFolder: 'mods', proxy: false },
+  velocity: { label: 'Velocity', group: 'proxy', extFolder: 'plugins', proxy: true, defaultPort: 25577 },
+  waterfall: { label: 'Waterfall', group: 'proxy', extFolder: 'plugins', proxy: true, defaultPort: 25577 },
+  bungeecord: { label: 'BungeeCord', group: 'proxy', extFolder: 'plugins', proxy: true, defaultPort: 25577 },
+}
+
+/** Wie der Server gestartet wird: direkt per JAR oder über eine Argument-Datei (moderne Forge/NeoForge). */
+export const LaunchSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('jar'), jar: z.string() }),
+  /** `{platform}` wird zu `win` bzw. `unix`. */
+  z.object({ type: z.literal('args'), argsFile: z.string() }),
+])
+export type Launch = z.infer<typeof LaunchSchema>
 
 export const JvmPresetSchema = z.enum(['none', 'aikar'])
 
@@ -18,6 +53,7 @@ export const ServerRecordSchema = z.object({
   ramMb: z.number().int().min(512).max(131072),
   jvmPreset: JvmPresetSchema.default('aikar'),
   javaMajor: z.number().int().min(8).max(99),
+  launch: LaunchSchema.default({ type: 'jar', jar: 'server.jar' }),
   autoRestart: z.boolean().default(true),
   /** Wird nach App-Start (und nach einem Update) automatisch gestartet. */
   autostart: z.boolean().default(false),
