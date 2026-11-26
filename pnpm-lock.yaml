@@ -21,6 +21,9 @@ importers:
       '@trm/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@trm/remote':
+        specifier: workspace:*
+        version: link:../../packages/remote
       '@trm/servers':
         specifier: workspace:*
         version: link:../../packages/servers
@@ -30,6 +33,9 @@ importers:
       '@types/node':
         specifier: ^22.10.0
         version: 22.20.7
+      '@types/ws':
+        specifier: ^8.5.13
+        version: 8.18.2
       electron:
         specifier: ^33.2.0
         version: 33.4.11
@@ -45,6 +51,9 @@ importers:
       vitest:
         specifier: ^3.0.0
         version: 3.2.7(@types/debug@4.1.13)(@types/node@22.20.7)(jiti@1.21.7)(jsdom@25.0.1)
+      ws:
+        specifier: ^8.18.0
+        version: 8.23.0
 
   apps/ui:
     dependencies:
@@ -149,6 +158,49 @@ importers:
         specifier: ^3.24.0
         version: 3.25.76
     devDependencies:
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@22.20.7)(jiti@1.21.7)(jsdom@25.0.1)
+
+  packages/remote:
+    dependencies:
+      '@trm/core':
+        specifier: workspace:*
+        version: link:../core
+      '@trm/servers':
+        specifier: workspace:*
+        version: link:../servers
+      extract-zip:
+        specifier: ^2.0.1
+        version: 2.0.1
+      ws:
+        specifier: ^8.18.0
+        version: 8.23.0
+      yauzl:
+        specifier: ^3.2.0
+        version: 3.4.0
+      zod:
+        specifier: ^3.24.0
+        version: 3.25.76
+    devDependencies:
+      '@types/archiver':
+        specifier: ^6.0.3
+        version: 6.0.4
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.7
+      '@types/ws':
+        specifier: ^8.5.13
+        version: 8.18.2
+      '@types/yauzl':
+        specifier: ^2.10.3
+        version: 2.10.3
+      archiver:
+        specifier: ^7.0.1
+        version: 7.0.1(bare-buffer@3.7.3)
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
@@ -1031,6 +1083,9 @@ packages:
 
   '@types/verror@1.10.11':
     resolution: {integrity: sha512-RlDm9K7+o5stv0Co8i8ZRGxDbrTxhJtgjqjFyVh/tXQyl/rYtTKlnTvZ88oSTeYREWurwx20Js4kTuKCsFkUtg==}
+
+  '@types/ws@8.18.2':
+    resolution: {integrity: sha512-67MQl+fpWKVTT1NYdnmo3U4sc/xPo/zQBncVnI74qmQa0z/b+1g6iYqNmGCPbxO+zz2aklb08a0oHfegiVd0/w==}
 
   '@types/yauzl@2.10.3':
     resolution: {integrity: sha512-oJoftv0LSuaDZE3Le4DbKX+KS9G36NzOeSap90UIK0yMA/NhKJhqlSGtNDORNRaIbQfzjXDrQa0ytJ6mNRGz/Q==}
@@ -4016,6 +4071,10 @@ snapshots:
 
   '@types/verror@1.10.11':
     optional: true
+
+  '@types/ws@8.18.2':
+    dependencies:
+      '@types/node': 22.20.7
 
   '@types/yauzl@2.10.3':
     dependencies:

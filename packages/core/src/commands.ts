@@ -1,5 +1,6 @@
 import type { DeepPartial, Settings } from './settings'
 import type { UpdaterState } from './updater'
+import type { RemoteStatus, UploadRecord } from './remote'
 import type { CloudflareStatus, DomainConfig, FirewallStatus, JoinInfo, NetInfo, ReachResult, TunnelState, UpnpStatus } from './net'
 import type { BackupInfo, FileContent, FileEntry, PlayerAction, PlayerEntry, ScheduleTask, StatsSample, WorldInfo } from './ops'
 import type { InstalledMod, ModInstallResult, ModpackInstallArgs, ModSearchArgs, ModSearchResult, ModSource, ModUpdate } from './mods'
@@ -103,6 +104,11 @@ export interface CommandMap {
   'net.tunnel.state': { args: void; result: TunnelState }
   'net.tunnel.start': { args: void; result: void }
   'net.tunnel.stop': { args: void; result: void }
+  'remote.status': { args: void; result: RemoteStatus }
+  'remote.pair': { args: string; result: RemoteStatus }
+  'remote.unpair': { args: void; result: void }
+  'remote.uploads': { args: void; result: UploadRecord[] }
+  'remote.undo': { args: string; result: void }
   'secrets.set': { args: { name: SecretName; value: string }; result: void }
   'secrets.has': { args: SecretName; result: boolean }
   'secrets.delete': { args: SecretName; result: void }
@@ -110,6 +116,9 @@ export interface CommandMap {
 
 /** Namen der Geheimnisse, die verschlüsselt im Windows-Credential-Schutz (DPAPI) liegen. */
 export type SecretName = 'curseforge' | 'cloudflare' | `discord:${string}`
+
+/** Das Geräte-Token der Webseite wird nie über die UI gesetzt oder gelesen. */
+export type InternalSecret = 'remote'
 
 export type CommandName = keyof CommandMap
 export type CommandArgs<K extends CommandName> = CommandMap[K]['args']
@@ -200,6 +209,11 @@ export const commandRoles: Record<CommandName, Role> = {
   'net.tunnel.state': 'admin',
   'net.tunnel.start': 'owner',
   'net.tunnel.stop': 'owner',
+  'remote.status': 'owner',
+  'remote.pair': 'owner',
+  'remote.unpair': 'owner',
+  'remote.uploads': 'owner',
+  'remote.undo': 'owner',
   'secrets.set': 'owner',
   'secrets.has': 'owner',
   'secrets.delete': 'owner',
@@ -224,5 +238,7 @@ export interface AppEvents {
   'servers.progress': ProgressEvent
   'servers.stats': { id: string; sample: StatsSample }
   'net.tunnel': TunnelState
+  'remote.status': RemoteStatus
+  'remote.upload': UploadRecord
 }
 export type EventName = keyof AppEvents

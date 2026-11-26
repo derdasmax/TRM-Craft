@@ -38,6 +38,8 @@ function browserBridge(): TrmBridge {
         case 'net.join': return {}
         case 'net.domain.get': return null
         case 'net.tunnel.state': return { status: 'stopped', lines: [] }
+        case 'remote.status': return { enabled: false, paired: false, connected: false, url: '', sessions: [], canUpload: false }
+        case 'remote.uploads': return []
         case 'updater.getState': return { phase: 'uptodate', currentVersion: '0.0.0-dev' }
         case 'window.toggleMaximize': case 'window.isMaximized': return false
         default: return undefined

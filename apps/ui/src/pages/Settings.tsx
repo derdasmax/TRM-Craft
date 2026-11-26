@@ -2,6 +2,7 @@ import clsx from 'clsx'
 import { useEffect, useState } from 'react'
 import type { Accent } from '@trm/core'
 import { Button, Row, Section, Segmented, Switch } from '../components/ui'
+import { RemoteSection } from '../components/RemoteSection'
 import { invoke } from '../lib/bridge'
 import { useStore } from '../lib/store'
 import { useT, type Key } from '../lib/i18n'
@@ -81,6 +82,8 @@ export function Settings() {
       </Section>
 
       <Integrations />
+
+      <RemoteSection />
 
       <Section title={t('upd.title')}>
         <Row title={t('upd.channel')}>

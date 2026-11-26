@@ -21,6 +21,17 @@ export const SettingsSchema = z.object({
       desktop: z.boolean().default(true),
     })
     .default({}),
+  remote: z
+    .object({
+      enabled: z.boolean().default(false),
+      /** wss://-Adresse der TRM-Webseite (Agent-Endpunkt). */
+      url: z.string().max(300).default(''),
+      /** Höchste Rolle, die über die Webseite ausgeführt werden darf. */
+      maxRole: z.enum(['viewer', 'moderator', 'admin']).default('admin'),
+      uploadLimitMb: z.number().int().min(1).max(20480).default(1024),
+      deviceName: z.string().max(60).default(''),
+    })
+    .default({}),
 })
 
 export type Settings = z.infer<typeof SettingsSchema>
@@ -49,6 +60,7 @@ export function mergeSettings(current: Settings, patch: DeepPartial<Settings>): 
     ...patch,
     updates: { ...current.updates, ...(patch.updates ?? {}) },
     notifications: { ...current.notifications, ...(patch.notifications ?? {}) },
+    remote: { ...current.remote, ...(patch.remote ?? {}) },
   }
   return parseSettings(merged)
 }

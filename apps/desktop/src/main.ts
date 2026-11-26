@@ -7,8 +7,13 @@ import { loadGuard, saveGuard } from './guard-store'
 import { rollbackTo } from './rollback'
 import { createTray } from './tray'
 import { registerShutdownHook, stopAll } from './lifecycle'
-import { buildJoinInfo, checkReachable, Cloudflare, Ddns, Firewall, installModpack, isDiscordWebhook, localIps, ModManager, PlayitTunnel, publicIp, ruleName, Scheduler, ServerManager, UpnpClient } from '@trm/servers'
+import { activeWorld, buildJoinInfo, checkReachable, Cloudflare, Ddns, Firewall, installModpack, isDiscordWebhook, localIps, ModManager, PlayitTunnel, publicIp, ruleName, Scheduler, ServerManager, UpnpClient } from '@trm/servers'
 import { Notifier } from './notifier'
+import { pairDevice, RemoteClient, UploadManager, type UploadServer } from '@trm/remote'
+import { commandRoles, type RemoteStatus } from '@trm/core'
+import { hostname } from 'node:os'
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import WebSocket from 'ws'
 import { join } from 'node:path'
 import { SecretStore } from './secrets'
 
@@ -22,12 +27,26 @@ let mods: ModManager
 let scheduler: Scheduler
 let notifier: Notifier
 let ddns: Ddns
+let remote: RemoteClient
+let uploads: UploadManager
+let remoteState: { connected: boolean; error?: string; sessions: RemoteStatus['sessions'] } = { connected: false, sessions: [] }
 let tunnel: PlayitTunnel
 const upnp = new UpnpClient()
 let upnpReady = false
 const firewall = new Firewall()
 /** Von TRM-Craft angelegte UPnP-Weiterleitungen je Server. */
 const mapped = new Map<string, { port: number; protocol: 'TCP' | 'UDP' }[]>()
+
+const deviceFile = () => join(dataDir(), 'remote-device.json')
+function readDevice(): { deviceId: string; siteName?: string; canUpload: boolean } | null {
+  try { return existsSync(deviceFile()) ? JSON.parse(readFileSync(deviceFile(), 'utf8')) : null } catch { return null }
+}
+function remoteStatus(): RemoteStatus {
+  const r = settings.get().remote
+  const dev = readDevice()
+  return { enabled: r.enabled, paired: secrets.has('remote'), connected: remoteState.connected, url: r.url, siteName: dev?.siteName, lastError: remoteState.error, sessions: remoteState.sessions, canUpload: !!dev?.canUpload }
+}
+const isCommand = (c: string): c is CommandName => c in commandRoles
 
 /** Alle Ports, die Spieler für diesen Server erreichen müssen. */
 function serverPorts(id: string): { port: number; protocol: 'TCP' | 'UDP' }[] {
@@ -74,8 +93,10 @@ const handlers: Record<CommandName, (args: any) => unknown> = {
   }),
   'settings.get': () => settings.get(),
   'settings.update': (patch) => {
+    const before = JSON.stringify(settings.get().remote)
     const next = settings.update(patch)
     updater?.applySettings()
+    if (remote && JSON.stringify(next.remote) !== before) { remote.start(); emit('remote.status', remoteStatus()) }
     emit('settings.changed', next)
     return next
   },
@@ -204,13 +225,36 @@ const handlers: Record<CommandName, (args: any) => unknown> = {
   'net.tunnel.state': () => tunnel.state,
   'net.tunnel.start': () => tunnel.start(),
   'net.tunnel.stop': () => tunnel.stop(),
+  'remote.status': () => remoteStatus(),
+  'remote.pair': async (code) => {
+    const r = settings.get().remote
+    const res = await pairDevice(r.url, code, r.deviceName || hostname(), app.getVersion())
+    secrets.set('remote', res.deviceToken)
+    writeFileSync(deviceFile(), JSON.stringify({ deviceId: res.deviceId, siteName: res.siteName, canUpload: res.perms.upload }))
+    const next = settings.update({ remote: { enabled: true } })
+    emit('settings.changed', next)
+    remote.start()
+    return remoteStatus()
+  },
+  'remote.unpair': () => {
+    secrets.delete('remote')
+    rmSync(deviceFile(), { force: true })
+    emit('settings.changed', settings.update({ remote: { enabled: false } }))
+    remote.stop()
+    emit('remote.status', remoteStatus())
+  },
+  'remote.uploads': () => uploads.history(),
+  'remote.undo': (id) => uploads.undo(id),
   'secrets.set': ({ name, value }) => {
     if (!/^(curseforge|cloudflare|discord:[a-z0-9][a-z0-9-]{0,39})$/.test(name)) throw new Error('Unbekanntes Geheimnis.')
     if (name.startsWith('discord:') && !isDiscordWebhook(value.trim())) throw new Error('Das ist keine gültige Discord-Webhook-URL.')
     secrets.set(name, value)
   },
-  'secrets.has': (name) => secrets.has(name),
-  'secrets.delete': (name) => secrets.delete(name),
+  'secrets.has': (name) => /^(curseforge|cloudflare|discord:[a-z0-9][a-z0-9-]{0,39})$/.test(name) && secrets.has(name),
+  'secrets.delete': (name) => {
+    if (!/^(curseforge|cloudflare|discord:[a-z0-9][a-z0-9-]{0,39})$/.test(name)) throw new Error('Unbekanntes Geheimnis.')
+    secrets.delete(name)
+  },
   'shell.openExternal': (url: string) => {
     // Nur https-Links nach außen öffnen.
     if (typeof url === 'string' && url.startsWith('https://')) return shell.openExternal(url)
@@ -328,6 +372,8 @@ async function runCrashGuard(): Promise<string | undefined> {
 }
 
 app.whenReady().then(async () => {
+  // Nur für Tests unter Linux (ohne Schlüsselbund). Im gepackten Windows-Build ist dieser Schalter wirkungslos.
+  if (!app.isPackaged && process.platform === 'linux' && process.env.TRM_TEST_WEAK_ENCRYPTION === '1') safeStorage.setUsePlainTextEncryption(true)
   settings = new SettingsStore(settingsFile())
   const rolledBackFrom = await runCrashGuard()
   notifier = new Notifier({
@@ -339,6 +385,7 @@ app.whenReady().then(async () => {
     dataDir: dataDir(),
     emit: (e, p) => {
       emit(e, p)
+      remote?.forward(e, p)
       if (e === 'servers.status') notifier.onStatus(p as ServerView)
     },
     onLowTps: (id, tps) => {
@@ -348,6 +395,37 @@ app.whenReady().then(async () => {
   })
   ddns = new Ddns({ file: join(dataDir(), 'domains.json'), token: () => secrets.get('cloudflare'), publicIp: () => publicIp(), portOf: (id) => { try { return servers.recordOf(id).port } catch { return null } } })
   tunnel = new PlayitTunnel({ dir: join(dataDir(), 'runtimes', 'playit'), emit: (s) => emit('net.tunnel', s) })
+  uploads = new UploadManager({
+    dir: join(dataDir(), 'uploads'),
+    limitBytes: () => settings.get().remote.uploadLimitMb * 1048576,
+    canUpload: () => !!readDevice()?.canUpload,
+    siteHost: () => { try { return new URL(settings.get().remote.url).hostname } catch { return null } },
+    send: (m) => remote.reply(m),
+    emit: (r) => { emit('remote.upload', r); remote.forward('remote.upload', r) },
+    restore: (id, file) => servers.backupRestore(id, file),
+    server: (id): UploadServer | null => {
+      try {
+        const rec = servers.recordOf(id)
+        const dir = servers.serverDir(id)
+        return {
+          rec, dir, name: rec.name, levelName: () => activeWorld(dir),
+          get running() { return ['running', 'starting'].includes(servers.statusOf(id)) },
+          backup: async (label) => (await servers.backupCreate(id, label)).file,
+          restart: (sec) => servers.restartWithWarning(id, sec),
+        }
+      } catch { return null }
+    },
+  })
+  remote = new RemoteClient({
+    config: () => { const r = settings.get().remote; return { enabled: r.enabled, url: r.url, maxRole: r.maxRole } },
+    token: () => secrets.get('remote'),
+    create: (url, token) => new WebSocket(url, { headers: { authorization: `Bearer ${token}` }, handshakeTimeout: 10_000, maxPayload: 8 * 1024 * 1024 }) as never,
+    exec: (c, a) => Promise.resolve(handlers[c](a)),
+    known: isCommand,
+    hello: () => ({ deviceId: readDevice()?.deviceId, deviceName: settings.get().remote.deviceName || hostname(), appVersion: app.getVersion(), platform: process.platform, canUpload: !!readDevice()?.canUpload, servers: servers.list().map((s) => ({ id: s.id, name: s.name, loader: s.loader, mcVersion: s.mcVersion, edition: s.edition, status: s.status, players: s.players.length })) }),
+    uploads,
+    onState: (st) => { remoteState = st; emit('remote.status', remoteStatus()) },
+  })
   scheduler = new Scheduler(
     join(dataDir(), 'schedules.json'),
     {
@@ -379,6 +457,7 @@ app.whenReady().then(async () => {
   void servers.resume()
   servers.startMonitoring()
   ddns.start()
+  remote.start()
   scheduler.start()
 })
 
@@ -389,6 +468,7 @@ app.on('before-quit', (e) => {
   scheduler?.stop()
   servers?.stopMonitoring()
   ddns?.stop()
+  remote?.stop()
   tunnel?.stop()
   // Server sauber stoppen, dann endgültig beenden.
   Promise.all([stopAll(), upnpCleanup()]).finally(() => app.quit())

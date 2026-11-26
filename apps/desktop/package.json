@@ -17,14 +17,17 @@
   },
   "devDependencies": {
     "@trm/core": "workspace:*",
+    "@trm/remote": "workspace:*",
     "@trm/servers": "workspace:*",
     "@trm/ui": "workspace:*",
     "@types/node": "^22.10.0",
+    "@types/ws": "^8.5.13",
     "electron": "^33.2.0",
     "electron-builder": "^25.1.8",
     "esbuild": "^0.24.0",
     "typescript": "^5.7.0",
-    "vitest": "^3.0.0"
+    "vitest": "^3.0.0",
+    "ws": "^8.18.0"
   },
   "productName": "TRM-Craft"
 }

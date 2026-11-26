@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { defaultSettings, mergeSettings, type AppInfo, type DeepPartial, type ProgressEvent, type ServerView, type Settings, type StatsSample, type TunnelState, type UpdaterState } from '@trm/core'
+import { defaultSettings, mergeSettings, type AppInfo, type DeepPartial, type ProgressEvent, type ServerView, type Settings, type StatsSample, type TunnelState, type RemoteStatus, type UploadRecord, type UpdaterState } from '@trm/core'
 import { invoke, onEvent } from './bridge'
 
 const LOG_CAP = 1500
@@ -17,6 +17,8 @@ interface State {
   progress: Record<string, ProgressEvent>
   stats: Record<string, StatsSample[]>
   tunnel: TunnelState
+  remote: RemoteStatus | null
+  uploads: UploadRecord[]
   page: Page
   selected: string | null
   wizardOpen: boolean
@@ -41,6 +43,8 @@ export const useStore = create<State>((set, get) => ({
   progress: {},
   stats: {},
   tunnel: { status: 'stopped', lines: [] },
+  remote: null,
+  uploads: [],
   page: 'dashboard',
   selected: null,
   wizardOpen: false,
@@ -79,6 +83,10 @@ export const useStore = create<State>((set, get) => ({
     onEvent('servers.stats', ({ id, sample }) => set((s) => ({ stats: { ...s.stats, [id]: [...(s.stats[id] ?? []).slice(-359), sample] } })))
     onEvent('net.tunnel', (tunnel) => set({ tunnel }))
     invoke('net.tunnel.state').then((tunnel) => set({ tunnel })).catch(() => {})
+    onEvent('remote.status', (remote) => set({ remote }))
+    onEvent('remote.upload', (u) => set((s) => ({ uploads: [u, ...s.uploads.filter((x) => x.id !== u.id)].slice(0, 200) })))
+    invoke('remote.status').then((remote) => set({ remote })).catch(() => {})
+    invoke('remote.uploads').then((uploads) => set({ uploads })).catch(() => {})
     onEvent('servers.progress', (p) => set((s) => ({ progress: { ...s.progress, [p.token]: p } })))
   },
 }))

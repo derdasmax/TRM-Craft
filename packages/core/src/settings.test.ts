@@ -22,6 +22,12 @@ describe('settings', () => {
     expect(s.updates.autoInstall).toBe(true)
   })
 
+  it('Fernzugriff ist standardmäßig aus und prüft Werte', () => {
+    expect(defaultSettings.remote).toMatchObject({ enabled: false, url: '', maxRole: 'admin' })
+    expect(parseSettings({ remote: { maxRole: 'owner' } }).remote.maxRole).toBe('admin')
+    expect(mergeSettings(defaultSettings, { remote: { enabled: true } }).remote.url).toBe('')
+  })
+
   it('begrenzt das Update-Intervall', () => {
     const s = parseSettings({ updates: { checkIntervalHours: 9999 } })
     expect(s.updates.checkIntervalHours).toBe(6)

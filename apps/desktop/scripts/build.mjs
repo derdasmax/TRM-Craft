@@ -2,7 +2,7 @@ import { build } from 'esbuild'
 import { cpSync, mkdirSync, existsSync } from 'node:fs'
 
 mkdirSync('dist', { recursive: true })
-const common = { bundle: true, platform: 'node', target: 'node20', format: 'cjs', external: ['electron', 'electron-updater', 'better-sqlite3'], sourcemap: true, outExtension: { '.js': '.cjs' } }
+const common = { bundle: true, platform: 'node', target: 'node20', format: 'cjs', external: ['electron', 'electron-updater', 'better-sqlite3', 'bufferutil', 'utf-8-validate'], sourcemap: true, outExtension: { '.js': '.cjs' } }
 await build({ ...common, entryPoints: ['src/main.ts'], outfile: 'dist/main.cjs' })
 await build({ ...common, entryPoints: ['src/preload.ts'], outfile: 'dist/preload.cjs' })
 cpSync('static/splash.html', 'dist/splash.html')
