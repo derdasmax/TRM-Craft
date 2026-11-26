@@ -17,7 +17,7 @@ const tmp = () => mkdtempSync(join(tmpdir(), 'trm-net-'))
 
 const server = (o: Partial<ServerRecord> = {}): ServerRecord => ({
   id: 's1', name: 'S', edition: 'java', loader: 'paper', mcVersion: '1.21.4', port: 25565, ramMb: 2048, jvmPreset: 'aikar', javaMajor: 21, launch: { type: 'jar', jar: 'server.jar' },
-  crossplay: false, backup: { keep: 10 }, notify: { desktop: true, discord: false, joins: false }, autoRestart: true, autostart: false, eulaAcceptedAt: null, createdAt: 'x', ...o,
+  crossplay: false, limits: { priority: 'normal' }, backup: { keep: 10 }, notify: { desktop: true, discord: false, joins: false }, autoRestart: true, autostart: false, eulaAcceptedAt: null, createdAt: 'x', ...o,
 })
 
 describe('IP', () => {

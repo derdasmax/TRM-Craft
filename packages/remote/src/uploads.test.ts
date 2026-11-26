@@ -10,7 +10,7 @@ import { UploadManager, type UploadServer } from './uploads'
 const tmp = (p = 'trm-up-') => mkdtempSync(join(tmpdir(), p))
 const rec = (o: Partial<ServerRecord> = {}): ServerRecord => ({
   id: 's1', name: 'Test', edition: 'java', loader: 'fabric', mcVersion: '1.20.1', port: 25565, ramMb: 2048, jvmPreset: 'aikar', javaMajor: 17, launch: { type: 'jar', jar: 'server.jar' },
-  crossplay: false, backup: { keep: 10 }, notify: { desktop: true, discord: false, joins: false }, autoRestart: true, autostart: false, eulaAcceptedAt: null, createdAt: 'x', ...o,
+  crossplay: false, limits: { priority: 'normal' }, backup: { keep: 10 }, notify: { desktop: true, discord: false, joins: false }, autoRestart: true, autostart: false, eulaAcceptedAt: null, createdAt: 'x', ...o,
 })
 
 async function zip(files: Record<string, string>): Promise<Buffer> {

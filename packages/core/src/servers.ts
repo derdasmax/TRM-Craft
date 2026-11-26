@@ -70,6 +70,8 @@ export const ServerRecordSchema = z.object({
   bedrockPort: z.number().int().min(1024).max(65535).optional(),
   backup: z.object({ dir: z.string().optional(), keep: z.number().int().min(1).max(200).default(10) }).default({}),
   notify: z.object({ desktop: z.boolean().default(true), discord: z.boolean().default(false), joins: z.boolean().default(false) }).default({}),
+  /** Ressourcenlimits: CPU-Kerne (JVM) und Prozess-Priorität. */
+  limits: z.object({ cores: z.number().int().min(1).max(64).optional(), priority: z.enum(['low', 'normal', 'high']).default('normal') }).default({}),
   autoRestart: z.boolean().default(true),
   /** Wird nach App-Start (und nach einem Update) automatisch gestartet. */
   autostart: z.boolean().default(false),
@@ -147,4 +149,24 @@ export function recommendRamMb(totalMb: number): number {
   const usable = Math.floor(totalMb * 0.5)
   const stepped = Math.floor(usable / 512) * 512
   return Math.max(1024, Math.min(stepped, 16384))
+}
+
+export const ImportServerInputSchema = z.object({
+  /** Absoluter Pfad eines vorhandenen Server-Ordners. */
+  path: z.string().min(1).max(500),
+  name: z.string().trim().min(1).max(40),
+  loader: LoaderSchema,
+  mcVersion: z.string().min(1),
+  ramMb: z.number().int().min(512).max(131072),
+  acceptEula: z.literal(true),
+})
+export type ImportServerInput = z.infer<typeof ImportServerInputSchema>
+
+export interface SoftwareStatus {
+  /** Kann diese Server-Software per Klick aktualisiert werden? */
+  supported: boolean
+  current?: string
+  latest?: string
+  available: boolean
+  reason?: string
 }

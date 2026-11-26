@@ -15,8 +15,9 @@ export function aikarFlags(ramMb: number): string[] {
   ]
 }
 
-export function jvmArgs(r: Pick<ServerRecord, 'ramMb' | 'jvmPreset' | 'launch'>, platform: NodeJS.Platform = process.platform): string[] {
-  const mem = [`-Xms${r.ramMb}M`, `-Xmx${r.ramMb}M`, ...(r.jvmPreset === 'aikar' ? aikarFlags(r.ramMb) : [])]
+export function jvmArgs(r: Pick<ServerRecord, 'ramMb' | 'jvmPreset' | 'launch'> & { limits?: ServerRecord['limits'] }, platform: NodeJS.Platform = process.platform): string[] {
+  // -XX:ActiveProcessorCount begrenzt, wie viele Kerne die JVM nutzt (CPU-Limit).
+  const mem = [`-Xms${r.ramMb}M`, `-Xmx${r.ramMb}M`, ...(r.limits?.cores ? [`-XX:ActiveProcessorCount=${r.limits.cores}`] : []), ...(r.jvmPreset === 'aikar' ? aikarFlags(r.ramMb) : [])]
   if (r.launch.type === 'args') return [...mem, `@${r.launch.argsFile.replace('{platform}', platform === 'win32' ? 'win' : 'unix')}`, 'nogui']
   if (r.launch.type === 'exe') throw new Error('Natives Programm hat keine JVM-Argumente.')
   return [...mem, '-jar', r.launch.jar, 'nogui']

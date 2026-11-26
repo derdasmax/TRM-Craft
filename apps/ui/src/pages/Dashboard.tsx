@@ -1,8 +1,11 @@
 import { motion } from 'framer-motion'
 import { AnimatePresence } from 'framer-motion'
-import { Package, Plus, Server } from 'lucide-react'
+import { FolderInput, Package, Plus, Server } from 'lucide-react'
 import { useState } from 'react'
-import { ModpackDialog } from '../components/ModpackDialog'
+import { Suspense } from 'react'
+import { lazyNamed } from '../lib/lazy'
+const ImportDialog = lazyNamed(() => import('../components/ImportDialog'), 'ImportDialog')
+const ModpackDialog = lazyNamed(() => import('../components/ModpackDialog'), 'ModpackDialog')
 import { Button } from '../components/ui'
 import { ServerCard } from '../components/ServerCard'
 import { useT } from '../lib/i18n'
@@ -21,7 +24,9 @@ export function Dashboard() {
   const t = useT()
   const servers = Object.values(useStore((s) => s.servers)).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
   const setWizard = useStore((s) => s.setWizard)
-  const [packOpen, setPackOpen] = useState(false)
+  const packOpen = useStore((s) => s.packOpen)
+  const [importOpen, setImportOpen] = useState(false)
+  const setPackOpen = useStore((s) => s.setPack)
   const online = servers.filter((s) => s.status === 'running').length
   const players = servers.reduce((n, s) => n + s.players.length, 0)
   return (
@@ -29,6 +34,7 @@ export function Dashboard() {
       <div className="mb-6 flex items-center justify-between gap-4">
         <h1 className="font-display text-[26px] font-semibold tracking-tight">{t('dash.title')}</h1>
         <div className="flex gap-2">
+          <Button variant="ghost" onClick={() => setImportOpen(true)}><FolderInput size={15} strokeWidth={1.75} />{t('im.open')}</Button>
           <Button variant="ghost" onClick={() => setPackOpen(true)}><Package size={15} strokeWidth={1.75} />{t('pack.open')}</Button>
           {servers.length > 0 && <Button onClick={() => setWizard(true)}><Plus size={15} strokeWidth={2} />{t('srv.new')}</Button>}
         </div>
@@ -52,7 +58,10 @@ export function Dashboard() {
           {servers.map((s, i) => <ServerCard key={s.id} s={s} index={i} />)}
         </div>
       )}
-      <AnimatePresence>{packOpen && <ModpackDialog onClose={() => setPackOpen(false)} />}</AnimatePresence>
+      <Suspense fallback={null}>
+        <AnimatePresence>{packOpen && <ModpackDialog onClose={() => setPackOpen(false)} />}</AnimatePresence>
+        <AnimatePresence>{importOpen && <ImportDialog onClose={() => setImportOpen(false)} />}</AnimatePresence>
+      </Suspense>
     </div>
   )
 }

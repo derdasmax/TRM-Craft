@@ -6,6 +6,7 @@ import { ServerActions } from './ServerActions'
 import { StatusPill } from './StatusPill'
 import { formatUptime } from '../lib/act'
 import { useT } from '../lib/i18n'
+import { Spark } from './Spark'
 import { useStore } from '../lib/store'
 
 function useNow(active: boolean) {
@@ -22,6 +23,7 @@ export function ServerCard({ s, index }: { s: ServerView; index: number }) {
   const t = useT()
   const open = useStore((x) => x.openServer)
   const now = useNow(s.status === 'running')
+  const samples = useStore((x) => x.stats[s.id])
   const Stat = ({ icon: I, children }: { icon: typeof Users; children: React.ReactNode }) => (
     <span className="inline-flex items-center gap-1.5 text-[12.5px] text-muted"><I size={14} strokeWidth={1.75} />{children}</span>
   )
@@ -47,6 +49,7 @@ export function ServerCard({ s, index }: { s: ServerView; index: number }) {
         <Stat icon={Cpu}><span className="font-mono tabular-nums">:{s.port}{s.edition === 'bedrock' ? ' UDP' : ''}{s.bedrockPort ? ` · :${s.bedrockPort} UDP` : ''}</span></Stat>
         {s.startedAt && <span className="font-mono text-[12.5px] tabular-nums text-muted">{formatUptime(now - s.startedAt)}</span>}
       </div>
+      {s.status === 'running' && samples && samples.length > 2 && <div className="mt-3 grid grid-cols-2 gap-3"><Spark label="CPU" unit="%" data={samples.map((x) => x.cpu)} /><Spark label="RAM" unit=" MB" data={samples.map((x) => x.ramMb)} /></div>}
       {s.status === 'crashed' && s.lastCrash && <p className="mt-3 rounded-ctl bg-danger/10 px-3 py-2 text-[12.5px] text-danger">{s.lastCrash.message}</p>}
       <div className="mt-4"><ServerActions s={s} compact /></div>
     </motion.div>

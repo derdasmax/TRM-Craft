@@ -5,7 +5,7 @@ import { roleAllows, type CommandName, type Role } from '@trm/core'
  * Kopplung) oder nehmen lokale Dateipfade entgegen, die ein Angreifer sonst frei wählen könnte.
  */
 const LOCAL_ONLY_PREFIX = ['window.', 'shell.', 'dialog.', 'secrets.', 'remote.']
-const LOCAL_ONLY = new Set<string>(['updater.installNow', 'updater.skipCountdown', 'mods.addFiles', 'files.upload', 'worlds.import', 'worlds.export', 'net.firewall.add', 'net.firewall.remove'])
+const LOCAL_ONLY = new Set<string>(['updater.installNow', 'updater.skipCountdown', 'mods.addFiles', 'files.upload', 'worlds.import', 'worlds.export', 'net.firewall.add', 'net.firewall.remove', 'servers.import'])
 
 const RANK: Record<Role, number> = { viewer: 0, moderator: 1, admin: 2, owner: 3 }
 

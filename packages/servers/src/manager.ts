@@ -1,11 +1,11 @@
 import extract from 'extract-zip'
 import { randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import { isAbsolute, join, resolve, sep } from 'node:path'
 import {
-  CreateServerInputSchema, LOADER_INFO, SERVER_ID, ServerRecordSchema,
-  type AppEvents, type BackupInfo, type PlayerAction, type PlayerEntry, type StatsSample, type WorldInfo, type CreateServerInput, type CrashReport, type ServerRecord, type ServerStatus, type ServerView, type SystemMemory, type VersionInfo, type Loader,
+  CreateServerInputSchema, ImportServerInputSchema, LOADER_INFO, SERVER_ID, ServerRecordSchema,
+  type AppEvents, type BackupInfo, type PlayerAction, type PlayerEntry, type StatsSample, type WorldInfo, type CreateServerInput, type CrashReport, type ServerRecord, type ImportServerInput, type SoftwareStatus, type ServerStatus, type ServerView, type SystemMemory, type VersionInfo, type Loader,
 } from '@trm/core'
 import { analyzeCrash } from './crash'
 import { downloadFile, type FetchLike } from './download'
@@ -18,6 +18,7 @@ import { BackupService, type SaveHost } from './backups'
 import { ServerFiles } from './files'
 import { PlayerTracker, playerCommand } from './players'
 import { cpuPercent, defaultStatReader, LowTpsDetector, parseTps, StatsStore, type ProcStat, type StatReader } from './stats'
+import { geyserConfig } from './providers/geyser'
 import { exportWorld, importWorldZip, listWorlds, resetWorld, WORLD_NAME } from './worlds'
 import { parseProperties, updateProperties } from './properties'
 import { ServerProcess, type LaunchSpec } from './process'
@@ -58,6 +59,17 @@ interface Runtime {
 const LOG_LIMIT = 2000
 const RESTART_WINDOW_MS = 10 * 60_000
 const MAX_RESTARTS = 5
+
+/** Erkennt, wie ein vorhandener Server gestartet wird: Argument-Datei (Forge/NeoForge) oder eine JAR. */
+export function detectLaunch(dir: string): ServerRecord['launch'] | null {
+  for (const group of [['net', 'minecraftforge', 'forge'], ['net', 'neoforged', 'neoforge']]) {
+    const base = join(dir, 'libraries', ...group)
+    if (existsSync(base)) for (const v of readdirSync(base)) if (existsSync(join(base, v, 'win_args.txt')) || existsSync(join(base, v, 'unix_args.txt'))) return { type: 'args', argsFile: `libraries/${group.join('/')}/${v}/{platform}_args.txt` }
+  }
+  if (existsSync(join(dir, 'server.jar'))) return { type: 'jar', jar: 'server.jar' }
+  const jars = readdirSync(dir).filter((f) => f.endsWith('.jar') && !/installer/i.test(f))
+  return jars.length === 1 ? { type: 'jar', jar: jars[0]! } : null
+}
 
 const slug = (s: string) => s.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 28) || 'server'
 
@@ -327,6 +339,7 @@ export class ServerManager {
     rt.logs.length = 0
     const spec = this.d.launcher?.(r, java, dir) ?? (r.launch.type === 'exe' ? { command: join(dir, r.launch.exe), args: [], cwd: dir } : { command: java, args: jvmArgs(r, this.d.platform), cwd: dir })
     rt.proc.start(spec)
+    this.applyPriority(rt.proc.pid, r.limits.priority)
   }
 
   async stop(id: string): Promise<void> {
@@ -357,7 +370,7 @@ export class ServerManager {
     return [...(this.runtimes.get(id)?.logs ?? [])]
   }
 
-  update(id: string, patch: Partial<Pick<ServerRecord, 'name' | 'ramMb' | 'jvmPreset' | 'autoRestart' | 'autostart' | 'port' | 'backup' | 'notify'>>): ServerRecord {
+  update(id: string, patch: Partial<Pick<ServerRecord, 'name' | 'ramMb' | 'jvmPreset' | 'autoRestart' | 'autostart' | 'port' | 'backup' | 'notify' | 'limits'>>): ServerRecord {
     const r = this.rec(id)
     if (patch.port !== undefined && patch.port !== r.port) {
       const clash = this.records.find((x) => x.id !== id && x.port === patch.port)
@@ -395,6 +408,113 @@ export class ServerManager {
   setProperties(id: string, values: Record<string, string>): void {
     this.rec(id)
     const f = join(this.serverDir(id), 'server.properties')
+    writeFileSync(f, updateProperties(existsSync(f) ? readFileSync(f, 'utf8') : '', values))
+  }
+
+  /** Setzt die Prozess-Priorität (Ressourcenlimit). "high" bedeutet nur leicht erhöht, damit der PC bedienbar bleibt. */
+  private applyPriority(pid: number | undefined, p: 'low' | 'normal' | 'high') {
+    if (!pid || p === 'normal') return
+    try { os.setPriority(pid, p === 'low' ? os.constants.priority.PRIORITY_BELOW_NORMAL : os.constants.priority.PRIORITY_ABOVE_NORMAL) } catch { /* nicht kritisch */ }
+  }
+
+  // ---------- Server-Software aktualisieren ----------
+  async softwareStatus(id: string): Promise<SoftwareStatus> {
+    const r = this.rec(id)
+    const def = (this.d.loaderDefs ?? LOADER_DEFS)[r.loader]
+    if (!def.latest || r.launch.type !== 'jar' || r.launch.jar !== 'server.jar') return { supported: false, available: false, current: r.build, reason: 'Diese Server-Software wird nicht automatisch aktualisiert. Erstelle den Server für eine neue Version neu.' }
+    const latest = await def.latest(r.mcVersion, this.d.fetchImpl)
+    return { supported: true, current: r.build, latest, available: !!latest && latest !== r.build }
+  }
+
+  /** Lädt den neuesten Build, sichert vorher und ersetzt server.jar. Der Server muss gestoppt sein. */
+  async updateSoftware(id: string): Promise<void> {
+    this.requireStopped(id)
+    const st = await this.softwareStatus(id)
+    if (!st.supported) throw new Error(st.reason ?? 'Nicht unterstützt.')
+    if (!st.available) throw new Error('Die Server-Software ist bereits aktuell.')
+    const r = this.rec(id)
+    const def = (this.d.loaderDefs ?? LOADER_DEFS)[r.loader]
+    const dir = this.serverDir(id)
+    await this.backupCreate(id, 'vor-update')
+    const tmp = mkdtempSync(join(dir, '.trm-sw-'))
+    try {
+      const res = await def.install({ dir: tmp, version: r.mcVersion, java: '', platform: this.d.platform ?? process.platform, fetchImpl: this.d.fetchImpl, download: this.d.downloadImpl ?? downloadFile, run: this.d.installerRunner ?? runInstaller, extract: (zip, to) => extract(zip, { dir: to }), progress: (label, percent) => this.d.emit('servers.progress', { token: `update-${id}`, label, percent }) })
+      if (res.launch.type !== 'jar') throw new Error('Unerwartetes Ergebnis.')
+      mkdirSync(join(dir, '.trm'), { recursive: true })
+      if (existsSync(join(dir, 'server.jar'))) renameSync(join(dir, 'server.jar'), join(dir, '.trm', 'server.jar.alt'))
+      renameSync(join(tmp, res.launch.jar), join(dir, 'server.jar'))
+      this.records[this.records.indexOf(r)] = { ...r, build: res.build ?? st.latest }
+      this.save()
+      this.push(id)
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  }
+
+  // ---------- Klonen ----------
+  async clone(id: string, name: string): Promise<ServerRecord> {
+    this.requireStopped(id)
+    const r = this.rec(id)
+    const nm = ServerRecordSchema.shape.name.parse(name)
+    const info = LOADER_INFO[r.loader]
+    const nid = `${slug(nm)}-${randomBytes(2).toString('hex')}`
+    const dest = this.serverDir(nid)
+    const taken = this.usedPorts()
+    const port = await findFreePort(info.defaultPort ?? (info.udp ? 19132 : 25565), taken, (p) => this.portFree(p, !!info.udp))
+    taken.add(port)
+    const bedrockPort = r.bedrockPort ? await findFreePort(19132, taken, (p) => this.portFree(p, true)) : undefined
+    const skip = new Set(['logs', 'crash-reports', 'players.json', 'restore-tmp'])
+    cpSync(this.serverDir(id), dest, { recursive: true, filter: (src) => !skip.has(src.split(/[\\/]/).pop() ?? '') })
+    const next = ServerRecordSchema.parse({ ...r, id: nid, name: nm, port, bedrockPort, autostart: false, createdAt: new Date().toISOString() })
+    this.records.push(next)
+    this.save()
+    if (!info.proxy) this.setProperties(nid, { 'server-port': String(port) })
+    const geyser = join(dest, 'plugins', 'Geyser-Spigot', 'config.yml')
+    if (bedrockPort && existsSync(geyser) && readFileSync(geyser, 'utf8').includes('Von TRM-Craft erzeugt')) writeFileSync(geyser, geyserConfig(bedrockPort, port))
+    this.push(nid)
+    return next
+  }
+
+  // ---------- Import eines vorhandenen Ordners ----------
+  async importFolder(raw: ImportServerInput): Promise<ServerRecord> {
+    const input = ImportServerInputSchema.parse(raw)
+    if (!isAbsolute(input.path) || !existsSync(input.path) || !statSync(input.path).isDirectory()) throw new Error('Der Ordner existiert nicht.')
+    const src = resolve(input.path)
+    if (src === resolve(this.d.dataDir) || src.startsWith(resolve(this.serversDir) + sep) || resolve(this.serversDir).startsWith(src + sep) || src === resolve(src, '..')) throw new Error('Dieser Ordner kann nicht importiert werden.')
+    const info = LOADER_INFO[input.loader]
+    const defs = this.d.loaderDefs ?? LOADER_DEFS
+    const launch = detectLaunch(src)
+    if (!launch) throw new Error('Im Ordner wurde keine Server-JAR gefunden (erwartet: server.jar oder genau eine .jar-Datei).')
+    const id = `${slug(input.name)}-${randomBytes(2).toString('hex')}`
+    const dir = this.serverDir(id)
+    const propsFile = join(src, 'server.properties')
+    const wanted = existsSync(propsFile) ? Number(parseProperties(readFileSync(propsFile, 'utf8'))['server-port']) : NaN
+    const taken = this.usedPorts()
+    const start = Number.isInteger(wanted) && wanted >= 1024 ? wanted : (info.defaultPort ?? 25565)
+    const port = await findFreePort(start, taken, (p) => this.portFree(p, !!info.udp))
+    try {
+      cpSync(src, dir, { recursive: true })
+      const javaMajor = info.java ? await defs[input.loader].javaMajor(input.mcVersion, this.d.fetchImpl) : undefined
+      if (!info.proxy) {
+        writeFileSync(join(dir, 'eula.txt'), `# Vom Nutzer in TRM-Craft akzeptiert am ${new Date().toISOString()}\n# https://aka.ms/MinecraftEULA\neula=true\n`)
+        if (existsSync(join(dir, 'server.properties')) || port !== wanted) this.setPropsAt(dir, { 'server-port': String(port) })
+      }
+      const record = ServerRecordSchema.parse({
+        id, name: input.name, loader: input.loader, mcVersion: input.mcVersion, port, ramMb: input.ramMb, jvmPreset: 'aikar', javaMajor, launch,
+        edition: info.edition, autoRestart: true, autostart: false, eulaAcceptedAt: info.proxy ? null : new Date().toISOString(), createdAt: new Date().toISOString(),
+      })
+      this.records.push(record)
+      this.save()
+      this.push(id)
+      return record
+    } catch (e) {
+      rmSync(dir, { recursive: true, force: true })
+      throw e
+    }
+  }
+
+  private setPropsAt(dir: string, values: Record<string, string>) {
+    const f = join(dir, 'server.properties')
     writeFileSync(f, updateProperties(existsSync(f) ? readFileSync(f, 'utf8') : '', values))
   }
 

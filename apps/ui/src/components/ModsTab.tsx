@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { ArrowUpCircle, Download, Search, Trash2, UploadCloud } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { LOADER_INFO, extensionKind, type InstalledMod, type ModHit, type ModSource, type ModUpdate, type ServerView } from '@trm/core'
+import { extensionKind, type InstalledMod, type ModHit, type ModSource, type ModUpdate, type ServerView } from '@trm/core'
 import { Button, Segmented, Switch } from './ui'
 import { act } from '../lib/act'
 import { invoke, pathForFile } from '../lib/bridge'
@@ -164,4 +164,3 @@ export function ModsTab({ server }: { server: ServerView }) {
   )
 }
 
-export const supportsMods = (s: ServerView) => !!LOADER_INFO[s.loader].extFolder && !!extensionKind(s.loader)

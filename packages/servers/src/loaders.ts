@@ -35,6 +35,8 @@ export interface LoaderDef {
   /** Benötigte Java-Hauptversion. */
   javaMajor(version: string, f?: FetchLike): Promise<number>
   install(ctx: InstallCtx): Promise<InstallResult>
+  /** Neuester verfügbarer Build bzw. Loader für diese Version (nur für JAR-basierte Software, die sich ersetzen lässt). */
+  latest?(version: string, f?: FetchLike): Promise<string | undefined>
 }
 
 const JAR: Launch = { type: 'jar', jar: 'server.jar' }
@@ -60,6 +62,7 @@ export function detectForgeLaunch(dir: string, group: string, artifactVersion: s
 const paperLike = (project: string): LoaderDef => ({
   versions: (f) => listPaperVersions(project, f),
   javaMajor: (v, f) => (project === 'velocity' || project === 'waterfall' ? Promise.resolve(21) : mcJava(v, f)),
+  latest: async (v, f) => (await resolvePaperBuild(v, project, f)).build,
   async install(c) {
     const b = await resolvePaperBuild(c.version, project, c.fetchImpl)
     await c.download({ url: b.url, dest: join(c.dir, 'server.jar'), sha256: b.sha256, fetchImpl: c.fetchImpl, onProgress: dlProgress(c, 'Server-Software wird geladen …') })
@@ -111,6 +114,7 @@ export const LOADER_DEFS: Record<Loader, LoaderDef> = {
   purpur: {
     versions: listPurpurVersions,
     javaMajor: mcJava,
+    latest: async (v, f) => (await resolvePurpur(v, f)).build,
     async install(c) {
       const b = await resolvePurpur(c.version, c.fetchImpl)
       await c.download({ url: b.url, dest: join(c.dir, 'server.jar'), md5: b.md5, fetchImpl: c.fetchImpl, onProgress: dlProgress(c, 'Server-Software wird geladen …') })
@@ -137,6 +141,7 @@ export const LOADER_DEFS: Record<Loader, LoaderDef> = {
   fabric: {
     versions: (f) => listMetaGameVersions('fabric', f),
     javaMajor: mcJava,
+    latest: async (v, f) => (await resolveFabric(v, f)).loader,
     async install(c) {
       const r = await resolveFabric(c.version, c.fetchImpl, c.loaderVersion)
       await c.download({ url: r.url, dest: join(c.dir, 'server.jar'), fetchImpl: c.fetchImpl, onProgress: dlProgress(c, 'Fabric wird geladen …') })

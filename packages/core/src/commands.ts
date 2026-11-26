@@ -4,7 +4,7 @@ import type { RemoteStatus, UploadRecord } from './remote'
 import type { CloudflareStatus, DomainConfig, FirewallStatus, JoinInfo, NetInfo, ReachResult, TunnelState, UpnpStatus } from './net'
 import type { BackupInfo, FileContent, FileEntry, PlayerAction, PlayerEntry, ScheduleTask, StatsSample, WorldInfo } from './ops'
 import type { InstalledMod, ModInstallResult, ModpackInstallArgs, ModSearchArgs, ModSearchResult, ModSource, ModUpdate } from './mods'
-import type { CreateServerInput, LogEvent, ProgressEvent, ServerRecord, ServerView, SystemMemory, Loader, VersionInfo } from './servers'
+import type { ImportServerInput, SoftwareStatus, CreateServerInput, LogEvent, ProgressEvent, ServerRecord, ServerView, SystemMemory, Loader, VersionInfo } from './servers'
 
 /**
  * Einheitliche Command-API. UI (IPC) und später die Webseite (WebSocket)
@@ -38,7 +38,7 @@ export interface CommandMap {
   'versions.list': { args: Loader; result: VersionInfo[] }
   'servers.list': { args: void; result: ServerView[] }
   'servers.create': { args: { token: string; input: CreateServerInput }; result: ServerRecord }
-  'servers.update': { args: { id: string; patch: Partial<Pick<ServerRecord, 'name' | 'ramMb' | 'jvmPreset' | 'autoRestart' | 'autostart' | 'port' | 'backup' | 'notify'>> }; result: ServerRecord }
+  'servers.update': { args: { id: string; patch: Partial<Pick<ServerRecord, 'name' | 'ramMb' | 'jvmPreset' | 'autoRestart' | 'autostart' | 'port' | 'backup' | 'notify' | 'limits'>> }; result: ServerRecord }
   'servers.start': { args: string; result: void }
   'servers.stop': { args: string; result: void }
   'servers.restart': { args: string; result: void }
@@ -57,6 +57,10 @@ export interface CommandMap {
   'mods.checkUpdates': { args: string; result: ModUpdate[] }
   'mods.update': { args: { id: string; file: string }; result: void }
   'modpacks.install': { args: ModpackInstallArgs; result: { record: ServerRecord; warnings: string[] } }
+  'servers.softwareStatus': { args: string; result: SoftwareStatus }
+  'servers.updateSoftware': { args: string; result: void }
+  'servers.clone': { args: { id: string; name: string }; result: ServerRecord }
+  'servers.import': { args: ImportServerInput; result: ServerRecord }
   'servers.setIcon': { args: { id: string; png: string }; result: void }
   'servers.getIcon': { args: string; result: string | null }
   'players.list': { args: string; result: PlayerEntry[] }
@@ -162,6 +166,10 @@ export const commandRoles: Record<CommandName, Role> = {
   'mods.checkUpdates': 'viewer',
   'mods.update': 'admin',
   'modpacks.install': 'admin',
+  'servers.softwareStatus': 'viewer',
+  'servers.updateSoftware': 'admin',
+  'servers.clone': 'admin',
+  'servers.import': 'admin',
   'servers.setIcon': 'admin',
   'servers.getIcon': 'viewer',
   'players.list': 'viewer',

@@ -1,5 +1,5 @@
 import archiver from 'archiver'
-import { createWriteStream, mkdirSync, mkdtempSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { createWriteStream, mkdirSync, mkdtempSync, existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -348,5 +348,107 @@ describe('Server-Icon', () => {
     expect(m.getIcon(r.id)).toMatch(/^data:image\/png;base64,/)
     expect(() => m.setIcon(r.id, png(128, 64))).toThrow(/64 x 64/)
     expect(() => m.setIcon(r.id, Buffer.from('keinpng-keinpng-keinpng-keinpng').toString('base64'))).toThrow(/PNG/)
+  })
+})
+
+describe('ServerManager: Limits, Software-Updates, Klonen, Import', () => {
+  it('begrenzt CPU-Kerne über die JVM', async () => {
+    const { jvmArgs } = await import('./jvm')
+    const base = { ramMb: 2048, jvmPreset: 'none' as const, launch: { type: 'jar' as const, jar: 'server.jar' } }
+    expect(jvmArgs({ ...base, limits: { cores: 2, priority: 'low' } })).toContain('-XX:ActiveProcessorCount=2')
+    expect(jvmArgs({ ...base, limits: { priority: 'normal' } }).some((a) => a.includes('ActiveProcessorCount'))).toBe(false)
+    const { m } = setup()
+    const r = await m.create('t', input)
+    expect(m.update(r.id, { limits: { cores: 2, priority: 'low' } }).limits).toEqual({ cores: 2, priority: 'low' })
+    expect(() => m.update(r.id, { limits: { cores: 0, priority: 'low' } })).toThrow()
+  })
+
+  it('erkennt neue Builds und ersetzt server.jar nach einem Backup', async () => {
+    const paper = { ...input, loader: 'paper' as const }
+    let latest = '10'
+    const loaderDefs = {
+      ...(await import('./loaders')).LOADER_DEFS,
+      paper: {
+        versions: async () => [], javaMajor: async () => 21, latest: async () => latest,
+        install: async (c: { dir: string }) => { writeFileSync(join(c.dir, 'server.jar'), `build-${latest}`); return { build: latest, launch: { type: 'jar' as const, jar: 'server.jar' } } },
+      },
+    }
+    const { m, dataDir } = setup({ loaderDefs: loaderDefs as never })
+    const r = await m.create('t', paper)
+    expect(r.build).toBe('10')
+    expect(await m.softwareStatus(r.id)).toMatchObject({ supported: true, available: false })
+    await expect(m.updateSoftware(r.id)).rejects.toThrow(/bereits aktuell/)
+    latest = '12'
+    expect(await m.softwareStatus(r.id)).toMatchObject({ available: true, current: '10', latest: '12' })
+    await m.start(r.id)
+    await waitFor(() => m.view(r.id).status === 'running')
+    await expect(m.updateSoftware(r.id)).rejects.toThrow(/Stoppe/)
+    await m.stop(r.id)
+    await m.updateSoftware(r.id)
+    expect(readFileSync(join(dataDir, 'servers', r.id, 'server.jar'), 'utf8')).toBe('build-12')
+    expect(readFileSync(join(dataDir, 'servers', r.id, '.trm', 'server.jar.alt'), 'utf8')).toBe('build-10')
+    expect(m.view(r.id).build).toBe('12')
+    expect(m.backupsList(r.id).some((b) => b.label === 'vor-update')).toBe(true)
+    expect(readdirSync(join(dataDir, 'servers', r.id)).some((f) => f.startsWith('.trm-sw-'))).toBe(false)
+  })
+
+  it('meldet, wenn Software nicht automatisch aktualisiert werden kann', async () => {
+    const { m } = setup()
+    const r = await m.create('t', input) // vanilla: kein latest()
+    expect(await m.softwareStatus(r.id)).toMatchObject({ supported: false })
+  })
+
+  it('klont einen Server mit neuer ID, freiem Port und ohne Logs', async () => {
+    const { m, dataDir } = setup()
+    const r = await m.create('t', input)
+    const src = join(dataDir, 'servers', r.id)
+    mkdirSync(join(src, 'logs'), { recursive: true })
+    writeFileSync(join(src, 'logs', 'latest.log'), 'x')
+    mkdirSync(join(src, 'world'), { recursive: true })
+    writeFileSync(join(src, 'world', 'level.dat'), 'welt')
+    const c = await m.clone(r.id, 'Kopie')
+    expect(c.id).not.toBe(r.id)
+    expect(c.port).toBe(r.port + 1)
+    expect(c.autostart).toBe(false)
+    const dst = join(dataDir, 'servers', c.id)
+    expect(readFileSync(join(dst, 'world', 'level.dat'), 'utf8')).toBe('welt')
+    expect(existsSync(join(dst, 'logs'))).toBe(false)
+    expect(m.getProperties(c.id)['server-port']).toBe(String(c.port))
+    await m.start(r.id)
+    await waitFor(() => m.view(r.id).status === 'running')
+    await expect(m.clone(r.id, 'Nochmal')).rejects.toThrow(/Stoppe/)
+    await m.kill(r.id)
+  })
+
+  it('importiert einen vorhandenen Ordner, vermeidet Port-Konflikte und verlangt die EULA', async () => {
+    const { m, dataDir } = setup()
+    const a = await m.create('t', input)
+    const folder = mkdtempSync(join(tmpdir(), 'trm-imp-'))
+    writeFileSync(join(folder, 'paper-1.21.4-100.jar'), 'jar')
+    writeFileSync(join(folder, 'server.properties'), `server-port=${a.port}\nmotd=Alt\n`)
+    mkdirSync(join(folder, 'world'))
+    writeFileSync(join(folder, 'world', 'level.dat'), 'x')
+    const imp = { path: folder, name: 'Importiert', loader: 'paper' as const, mcVersion: '1.21.4', ramMb: 2048, acceptEula: true as const }
+    await expect(m.importFolder({ ...imp, acceptEula: false as never })).rejects.toThrow()
+    const r = await m.importFolder(imp)
+    expect(r.launch).toEqual({ type: 'jar', jar: 'paper-1.21.4-100.jar' })
+    expect(r.port).toBe(a.port + 1)
+    expect(m.getProperties(r.id)).toMatchObject({ 'server-port': String(r.port), motd: 'Alt' })
+    expect(readFileSync(join(dataDir, 'servers', r.id, 'eula.txt'), 'utf8')).toContain('eula=true')
+    expect(existsSync(join(folder, 'eula.txt'))).toBe(false) // Quelle bleibt unverändert
+    await expect(m.importFolder({ ...imp, path: join(dataDir, 'servers', a.id) })).rejects.toThrow(/nicht importiert/)
+    const leer = mkdtempSync(join(tmpdir(), 'trm-leer-'))
+    await expect(m.importFolder({ ...imp, path: leer })).rejects.toThrow(/keine Server-JAR/)
+    await expect(m.importFolder({ ...imp, path: 'relativ/pfad' })).rejects.toThrow(/existiert nicht/)
+  })
+
+  it('erkennt Forge-Startdateien beim Import', async () => {
+    const { detectLaunch } = await import('./manager')
+    const d = mkdtempSync(join(tmpdir(), 'trm-fg-'))
+    mkdirSync(join(d, 'libraries/net/minecraftforge/forge/1.20.1-47.2.0'), { recursive: true })
+    writeFileSync(join(d, 'libraries/net/minecraftforge/forge/1.20.1-47.2.0/win_args.txt'), '')
+    expect(detectLaunch(d)).toEqual({ type: 'args', argsFile: 'libraries/net/minecraftforge/forge/1.20.1-47.2.0/{platform}_args.txt' })
+    writeFileSync(join(d, 'a.jar'), ''); writeFileSync(join(d, 'b.jar'), '')
+    expect(detectLaunch(mkdtempSync(join(tmpdir(), 'trm-2jar-')))).toBeNull()
   })
 })

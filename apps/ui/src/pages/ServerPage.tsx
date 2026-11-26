@@ -1,19 +1,21 @@
 import { motion } from 'framer-motion'
 import { ArrowLeft, Trash2, TriangleAlert } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import clsx from 'clsx'
 import { extensionKind, type ServerView } from '@trm/core'
-import { BackupsTab } from '../components/BackupsTab'
 import { Console } from '../components/Console'
-import { FilesTab } from '../components/FilesTab'
-import { NetworkTab } from '../components/NetworkTab'
-import { PerfTab } from '../components/PerfTab'
-import { PlayersTab } from '../components/PlayersTab'
-import { SchedulesTab } from '../components/SchedulesTab'
-import { WorldsTab } from '../components/WorldsTab'
-import { IconRow, NotifySection, PropertiesForm } from '../components/ServerExtras'
+import { IconRow, LimitsSection, NotifySection, PropertiesForm, SoftwareSection } from '../components/ServerExtras'
 import { LOADER_INFO } from '@trm/core'
-import { ModsTab, supportsMods } from '../components/ModsTab'
+import { supportsMods } from '../lib/ext'
+import { lazyNamed } from '../lib/lazy'
+const BackupsTab = lazyNamed(() => import('../components/BackupsTab'), 'BackupsTab')
+const FilesTab = lazyNamed(() => import('../components/FilesTab'), 'FilesTab')
+const NetworkTab = lazyNamed(() => import('../components/NetworkTab'), 'NetworkTab')
+const PerfTab = lazyNamed(() => import('../components/PerfTab'), 'PerfTab')
+const PlayersTab = lazyNamed(() => import('../components/PlayersTab'), 'PlayersTab')
+const SchedulesTab = lazyNamed(() => import('../components/SchedulesTab'), 'SchedulesTab')
+const WorldsTab = lazyNamed(() => import('../components/WorldsTab'), 'WorldsTab')
+const ModsTab = lazyNamed(() => import('../components/ModsTab'), 'ModsTab')
 import { ServerActions } from '../components/ServerActions'
 import { StatusPill } from '../components/StatusPill'
 import { Button, Row, Section, Segmented, Switch } from '../components/ui'
@@ -53,14 +55,24 @@ function SettingsTab({ s }: { s: ServerView }) {
         <Row title={t('srv.autorestart')}><Switch label={t('srv.autorestart')} checked={s.autoRestart} onChange={(autoRestart) => act(() => invoke('servers.update', { id: s.id, patch: { autoRestart } }))} /></Row>
         <Row title={t('srv.autostart')}><Switch label={t('srv.autostart')} checked={s.autostart} onChange={(autostart) => act(() => invoke('servers.update', { id: s.id, patch: { autostart } }))} /></Row>
       </Section>
+      <SoftwareSection s={s} />
+      <LimitsSection s={s} />
       {LOADER_INFO[s.loader].edition === 'java' && !LOADER_INFO[s.loader].proxy && <Section title={t('ss.icon')}><IconRow s={s} /></Section>}
       {!LOADER_INFO[s.loader].proxy && <PropertiesForm s={s} />}
       <NotifySection s={s} />
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex gap-2">
+        <Button variant="ghost" disabled={s.status !== 'stopped' && s.status !== 'crashed'} onClick={async () => {
+          const n = window.prompt(t('cl.name'), `${s.name} (Kopie)`)
+          if (!n) return
+          const c = await act(() => invoke('servers.clone', { id: s.id, name: n }))
+          if (c) { notify(t('cl.done')); useStore.getState().openServer(c.id) }
+        }}>{t('cl.clone')}</Button>
         <Button variant="ghost" onClick={async () => {
           if (!window.confirm(t('srv.delete.confirm', { n: s.name }))) return
           if ((await act(async () => { await invoke('servers.delete', s.id); return true })) ) setPage('dashboard')
         }} className="text-danger"><Trash2 size={14} strokeWidth={1.75} />{t('srv.delete')}</Button>
+        </div>
         <Button onClick={save} disabled={!dirty}>{t('srv.save')}</Button>
       </div>
     </div>
@@ -72,7 +84,8 @@ export function ServerPage() {
   const id = useStore((s) => s.selected)
   const s = useStore((x) => (id ? x.servers[id] : undefined))
   const setPage = useStore((x) => x.setPage)
-  const [tab, setTab] = useState<'console' | 'players' | 'files' | 'worlds' | 'backups' | 'schedules' | 'perf' | 'network' | 'mods' | 'settings'>('console')
+  const tab = useStore((x) => x.serverTab)
+  const setTab = useStore((x) => x.setServerTab)
   useEffect(() => { if (!s) setPage('dashboard') }, [s, setPage])
   if (!s) return null
   return (
@@ -105,7 +118,7 @@ export function ServerPage() {
           { value: 'settings' as const, label: t('srv.tab.settings') },
         ]} />
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">{tab === 'console' ? <Console server={s} />
+      <div className="min-h-0 flex-1 overflow-y-auto"><Suspense fallback={null}>{tab === 'console' ? <Console server={s} />
           : tab === 'players' ? <PlayersTab key={s.id} server={s} />
           : tab === 'files' ? <FilesTab key={s.id} server={s} />
           : tab === 'worlds' ? <WorldsTab key={s.id} server={s} />
@@ -113,7 +126,7 @@ export function ServerPage() {
           : tab === 'schedules' ? <SchedulesTab key={s.id} server={s} />
           : tab === 'perf' ? <PerfTab key={s.id} server={s} />
           : tab === 'network' ? <NetworkTab key={s.id} server={s} />
-          : tab === 'mods' ? <ModsTab key={s.id} server={s} /> : <SettingsTab key={s.id} s={s} />}</div>
+          : tab === 'mods' ? <ModsTab key={s.id} server={s} /> : <SettingsTab key={s.id} s={s} />}</Suspense></div>
     </div>
   )
 }

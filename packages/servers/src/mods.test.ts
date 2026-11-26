@@ -8,7 +8,7 @@ import { ModManager } from './mods'
 
 const rec = (loader: ServerRecord['loader'], id = 's1'): ServerRecord => ({
   id, name: 'T', edition: 'java', loader, mcVersion: '1.21.4', port: 25565, ramMb: 2048, jvmPreset: 'aikar', javaMajor: 21, launch: { type: 'jar', jar: 'server.jar' },
-  crossplay: false, backup: { keep: 10 }, notify: { desktop: true, discord: false, joins: false }, autoRestart: true, autostart: false, eulaAcceptedAt: null, createdAt: 'x',
+  crossplay: false, limits: { priority: 'normal' }, backup: { keep: 10 }, notify: { desktop: true, discord: false, joins: false }, autoRestart: true, autostart: false, eulaAcceptedAt: null, createdAt: 'x',
 })
 
 const ver = (id: string, project: string, file: string, deps: object[] = [], num = '1.0.0') => ({

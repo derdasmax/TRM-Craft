@@ -7,7 +7,10 @@ import { UpdateDialog } from './components/UpdateDialog'
 import { Dashboard } from './pages/Dashboard'
 import { Settings } from './pages/Settings'
 import { ServerPage } from './pages/ServerPage'
-import { Wizard } from './components/Wizard'
+import { Suspense } from 'react'
+import { lazyNamed } from './lib/lazy'
+const Wizard = lazyNamed(() => import('./components/Wizard'), 'Wizard')
+const CommandPalette = lazyNamed(() => import('./components/CommandPalette'), 'CommandPalette')
 import { useStore } from './lib/store'
 
 function useTheme() {
@@ -33,6 +36,19 @@ export default function App() {
   const toast = useStore((s) => s.toast)
   const onboardingDone = useStore((s) => s.settings.onboardingDone)
   useEffect(() => { void init() }, [init])
+  const paletteOpen = useStore((s) => s.paletteOpen)
+  // Globale Tastenkürzel: Strg+K Befehlspalette, Strg+N neuer Server, Strg+, Einstellungen.
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return
+      const st = useStore.getState()
+      if (e.key.toLowerCase() === 'k') { e.preventDefault(); st.setPalette(!st.paletteOpen) }
+      else if (e.key.toLowerCase() === 'n' && !e.shiftKey) { e.preventDefault(); st.setWizard(true) }
+      else if (e.key === ',') { e.preventDefault(); st.setPage('settings') }
+    }
+    window.addEventListener('keydown', on)
+    return () => window.removeEventListener('keydown', on)
+  }, [])
   useTheme()
   if (!ready) return null
   return (
@@ -52,7 +68,8 @@ export default function App() {
         </div>
         <AnimatePresence>{!onboardingDone && <Onboarding />}</AnimatePresence>
         {onboardingDone && <UpdateDialog />}
-        <AnimatePresence>{wizardOpen && <Wizard />}</AnimatePresence>
+        <Suspense fallback={null}><AnimatePresence>{wizardOpen && <Wizard />}</AnimatePresence>
+        {paletteOpen && <CommandPalette />}</Suspense>
         <AnimatePresence>
           {toast && (
             <motion.div key={toast} role="status" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }} className="glass fixed bottom-6 left-1/2 z-50 max-w-md -translate-x-1/2 rounded-ctl px-4 py-3 text-[13px]">{toast}</motion.div>

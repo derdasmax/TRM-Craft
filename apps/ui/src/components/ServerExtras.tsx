@@ -1,7 +1,7 @@
 import { ImagePlus } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import clsx from 'clsx'
-import type { ServerView } from '@trm/core'
+import type { ServerView, SoftwareStatus } from '@trm/core'
 import { Button, Row, Section, Switch } from './ui'
 import { act } from '../lib/act'
 import { invoke } from '../lib/bridge'
@@ -107,6 +107,47 @@ export function NotifySection({ s }: { s: ServerView }) {
             <input type="password" autoComplete="off" value={hook} onChange={(e) => setHook(e.target.value)} placeholder="https://discord.com/api/webhooks/…" aria-label={t('ss.webhook')} className={clsx(field, 'w-64 font-mono')} />
             <Button disabled={!hook.trim()} onClick={async () => { if (await act(async () => { await invoke('secrets.set', { name: `discord:${s.id}`, value: hook }); return true })) { setHook(''); setHas(true) } }}>{t('int.save')}</Button>
           </>}
+        </div>
+      </Row>
+    </Section>
+  )
+}
+
+export function SoftwareSection({ s }: { s: ServerView }) {
+  const t = useT()
+  const notify = useStore((x) => x.notify)
+  const [st, setSt] = useState<SoftwareStatus | null>(null)
+  const [busy, setBusy] = useState(false)
+  const stopped = s.status === 'stopped' || s.status === 'crashed'
+  useEffect(() => { setSt(null) }, [s.id])
+  return (
+    <Section title={t('sw.title')}>
+      <Row title={`${t('sw.current')}: ${s.loader} ${s.mcVersion}${s.build ? ` · ${t('sw.build')} ${s.build}` : ''}`} hint={st ? (st.available ? `${t('sw.latest')}: ${st.latest}` : st.supported ? t('sw.uptodate') : st.reason) : t('sw.backupNote')}>
+        <div className="flex gap-2">
+          <Button variant="ghost" disabled={busy} onClick={async () => setSt((await act(() => invoke('servers.softwareStatus', s.id))) ?? null)}>{t('sw.check')}</Button>
+          {st?.available && <Button disabled={busy || !stopped} onClick={async () => { setBusy(true); const ok = await act(async () => { await invoke('servers.updateSoftware', s.id); return true }); setBusy(false); if (ok) { notify(t('sw.done')); setSt(null) } }}>{busy ? '…' : t('sw.update')}</Button>}
+        </div>
+      </Row>
+    </Section>
+  )
+}
+
+export function LimitsSection({ s }: { s: ServerView }) {
+  const t = useT()
+  if (s.edition !== 'java') return null
+  const cores = navigator.hardwareConcurrency || 4
+  const set = (p: Partial<ServerView['limits']>) => act(() => invoke('servers.update', { id: s.id, patch: { limits: { ...s.limits, ...p } } }))
+  return (
+    <Section title={t('lim.title')}>
+      <Row title={t('lim.cores')} hint={t('lim.hint')}>
+        <select value={s.limits.cores ?? 0} onChange={(e) => { const n = Number(e.target.value); void act(() => invoke('servers.update', { id: s.id, patch: { limits: { priority: s.limits.priority, ...(n ? { cores: n } : {}) } } })) }} className={clsx(field, 'w-32')} aria-label={t('lim.cores')}>
+          <option value={0}>{t('lim.cores.all')}</option>
+          {Array.from({ length: cores - 1 }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{n}</option>)}
+        </select>
+      </Row>
+      <Row title={t('lim.priority')}>
+        <div className="no-drag hairline inline-flex rounded-ctl bg-raised/60 p-0.5" role="radiogroup">
+          {(['low', 'normal', 'high'] as const).map((p) => <button key={p} role="radio" aria-checked={s.limits.priority === p} onClick={() => set({ priority: p })} className={clsx('h-8 rounded-[8px] px-3 text-[13px] transition-colors', s.limits.priority === p ? 'bg-surface text-fg hairline' : 'text-muted hover:text-fg')}>{t(`lim.prio.${p}` as Key)}</button>)}
         </div>
       </Row>
     </Section>

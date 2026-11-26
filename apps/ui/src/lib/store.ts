@@ -5,6 +5,7 @@ import { invoke, onEvent } from './bridge'
 const LOG_CAP = 1500
 
 export type Page = 'dashboard' | 'settings' | 'server'
+export type ServerTab = 'console' | 'players' | 'files' | 'worlds' | 'backups' | 'schedules' | 'perf' | 'network' | 'mods' | 'settings'
 
 interface State {
   ready: boolean
@@ -22,11 +23,17 @@ interface State {
   page: Page
   selected: string | null
   wizardOpen: boolean
+  packOpen: boolean
+  paletteOpen: boolean
+  serverTab: ServerTab
   toast: string | null
   dismiss: (v: string) => void
   setPage: (p: Page) => void
   openServer: (id: string) => void
   setWizard: (open: boolean) => void
+  setPack: (open: boolean) => void
+  setPalette: (open: boolean) => void
+  setServerTab: (t: ServerTab) => void
   notify: (msg: string) => void
   update: (patch: DeepPartial<Settings>) => Promise<void>
   init: () => Promise<void>
@@ -48,11 +55,17 @@ export const useStore = create<State>((set, get) => ({
   page: 'dashboard',
   selected: null,
   wizardOpen: false,
+  packOpen: false,
+  paletteOpen: false,
+  serverTab: 'console',
   toast: null,
   dismiss: (v) => set({ dismissedVersion: v }),
   setPage: (page) => set({ page }),
-  openServer: (id) => set({ page: 'server', selected: id }),
+  openServer: (id) => set({ page: 'server', selected: id, serverTab: 'console' }),
   setWizard: (wizardOpen) => set({ wizardOpen }),
+  setPack: (packOpen) => set({ packOpen }),
+  setPalette: (paletteOpen) => set({ paletteOpen }),
+  setServerTab: (serverTab) => set({ serverTab }),
   notify: (toast) => {
     set({ toast })
     setTimeout(() => get().toast === toast && set({ toast: null }), 5000)

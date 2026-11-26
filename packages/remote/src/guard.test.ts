@@ -8,7 +8,7 @@ const ok = (c: string, a: unknown, role: Parameters<typeof authorizeRemote>[2], 
 
 describe('Remote-Schutz', () => {
   it('sperrt lokale Befehle komplett', () => {
-    for (const c of ['window.close', 'shell.openExternal', 'dialog.open', 'secrets.set', 'secrets.has', 'remote.pair', 'updater.installNow', 'mods.addFiles', 'files.upload', 'worlds.import', 'worlds.export', 'net.firewall.add']) {
+    for (const c of ['window.close', 'shell.openExternal', 'dialog.open', 'secrets.set', 'secrets.has', 'remote.pair', 'updater.installNow', 'mods.addFiles', 'files.upload', 'worlds.import', 'worlds.export', 'net.firewall.add', 'servers.import']) {
       expect(isRemoteAllowed(c), c).toBe(false)
       expect(ok(c, {}, 'owner'), c).toThrow(/nicht erlaubt/)
     }
