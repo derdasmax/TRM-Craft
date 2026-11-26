@@ -1,13 +1,21 @@
-import { app, BrowserWindow, ipcMain, session, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, Notification, session, shell } from 'electron'
 import { join } from 'node:path'
-import { IPC_CHANNEL, IPC_EVENT_CHANNEL, type CommandName } from '@trm/core'
+import { IPC_CHANNEL, IPC_EVENT_CHANNEL, onHealthy, onStart, type CommandName } from '@trm/core'
 import { dataDir, settingsFile } from './paths'
 import { SettingsStore } from './settings-store'
+import { UpdaterService } from './updater'
+import { loadGuard, saveGuard } from './guard-store'
+import { rollbackTo } from './rollback'
+import { createTray } from './tray'
+import { stopAll } from './lifecycle'
 
 const DEV_URL = process.env.TRM_DEV_URL
 let win: BrowserWindow | null = null
 let splash: BrowserWindow | null = null
 let settings: SettingsStore
+let updater: UpdaterService
+let quitting = false
+const HEALTHY_AFTER_MS = 20_000
 
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) app.quit()
@@ -32,6 +40,7 @@ const handlers: Record<CommandName, (args: any) => unknown> = {
   'settings.get': () => settings.get(),
   'settings.update': (patch) => {
     const next = settings.update(patch)
+    updater?.applySettings()
     emit('settings.changed', next)
     return next
   },
@@ -44,6 +53,11 @@ const handlers: Record<CommandName, (args: any) => unknown> = {
   },
   'window.close': () => win?.close(),
   'window.isMaximized': () => win?.isMaximized() ?? false,
+  'updater.getState': () => updater.getState(),
+  'updater.check': () => updater.check(),
+  'updater.download': () => updater.download(),
+  'updater.installNow': () => updater.installNow(),
+  'updater.skipCountdown': () => updater.skipCountdown(),
   'shell.openExternal': (url: string) => {
     // Nur https-Links nach außen öffnen.
     if (typeof url === 'string' && url.startsWith('https://')) return shell.openExternal(url)
@@ -126,18 +140,60 @@ function createWindow() {
       win?.show()
     }, 1400)
   })
+  win.on('close', (e) => {
+    // Mit aktivem Hintergrundbetrieb nur ins Tray, damit Server weiterlaufen.
+    if (!quitting && settings.get().runInBackground) {
+      e.preventDefault()
+      win?.hide()
+    }
+  })
   win.on('closed', () => (win = null))
 
   if (DEV_URL) win.loadURL(DEV_URL)
   else win.loadFile(join(__dirname, 'ui', 'index.html'))
 }
 
-app.whenReady().then(() => {
+/** Startet die Absturz-Überwachung. Gibt die Version zurück, von der zurückgerollt wurde. */
+async function runCrashGuard(): Promise<string | undefined> {
+  const action = onStart(loadGuard(), app.getVersion())
+  saveGuard(action.state)
+  if (action.type === 'rollback' && app.isPackaged) {
+    try {
+      await rollbackTo(action.target)
+      return undefined // App beendet sich, der Installer übernimmt
+    } catch {
+      // Rollback nicht möglich (offline?): normal weiterstarten.
+    }
+  }
+  setTimeout(() => saveGuard(onHealthy(loadGuard() ?? action.state)), HEALTHY_AFTER_MS)
+  const notice = action.state.rollbackNotice
+  if (notice) {
+    saveGuard({ ...action.state, rollbackNotice: null })
+    return notice
+  }
+  return undefined
+}
+
+app.whenReady().then(async () => {
   settings = new SettingsStore(settingsFile())
+  const rolledBackFrom = await runCrashGuard()
+  updater = new UpdaterService(() => settings.get(), (s) => emit('updater.state', s), rolledBackFrom)
   setupSecurity()
   registerIpc()
   createSplash()
   createWindow()
+  createTray(() => win, () => void updater.check(), () => app.quit())
+  if (rolledBackFrom && settings.get().notifications.desktop)
+    new Notification({ title: 'TRM-Craft', body: `Version ${rolledBackFrom} ist abgestürzt. Die vorherige Version wurde wiederhergestellt.` }).show()
+  setTimeout(() => void updater.check(), 8_000)
+})
+
+app.on('before-quit', (e) => {
+  if (quitting) return
+  quitting = true
+  e.preventDefault()
+  // Server sauber stoppen, dann endgültig beenden.
+  stopAll().finally(() => app.quit())
 })
 
 app.on('second-instance', () => {
@@ -148,5 +204,5 @@ app.on('second-instance', () => {
 })
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
+  if (!settings.get().runInBackground) app.quit()
 })

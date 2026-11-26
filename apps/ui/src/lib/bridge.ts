@@ -25,6 +25,7 @@ function browserBridge(): TrmBridge {
           try { localStorage.setItem(KEY, JSON.stringify(settings)) } catch { /* ignore */ }
           listeners.forEach((l) => l('settings.changed', settings))
           return settings
+        case 'updater.getState': return { phase: 'uptodate', currentVersion: '0.0.0-dev' }
         case 'window.toggleMaximize': case 'window.isMaximized': return false
         default: return undefined
       }

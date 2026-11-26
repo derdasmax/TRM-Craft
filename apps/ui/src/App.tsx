@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 import { Onboarding } from './components/Onboarding'
 import { Sidebar } from './components/Sidebar'
 import { TitleBar } from './components/TitleBar'
+import { UpdateDialog } from './components/UpdateDialog'
 import { Dashboard } from './pages/Dashboard'
 import { Settings } from './pages/Settings'
 import { useStore } from './lib/store'
@@ -46,6 +47,7 @@ export default function App() {
           </main>
         </div>
         <AnimatePresence>{!onboardingDone && <Onboarding />}</AnimatePresence>
+        {onboardingDone && <UpdateDialog />}
       </div>
     </MotionConfig>
   )

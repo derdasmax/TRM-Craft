@@ -6,17 +6,24 @@ settings:
 
 importers:
 
-  .: {}
+  .:
+    devDependencies:
+      vitest:
+        specifier: ^3.2.7
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@22.20.7)(jiti@1.21.7)(jsdom@25.0.1)
 
   apps/desktop:
     dependencies:
-      '@trm/core':
-        specifier: workspace:*
-        version: link:../../packages/core
       electron-updater:
         specifier: ^6.3.9
         version: 6.8.11
     devDependencies:
+      '@trm/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@trm/ui':
+        specifier: workspace:*
+        version: link:../ui
       '@types/node':
         specifier: ^22.10.0
         version: 22.20.7

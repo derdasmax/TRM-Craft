@@ -1,0 +1,85 @@
+name: Release
+
+# Push auf `main`  -> Stable-Release (Kanal "latest")
+# Push auf `beta`  -> Pre-Release (Kanal "beta")
+# Schlägt Build oder Test fehl, wird NICHTS veröffentlicht.
+
+on:
+  push:
+    branches: [main, beta]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Tags und Commit-Historie für Version und Changelog
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Version und Changelog berechnen
+        id: ver
+        shell: bash
+        run: |
+          CHANNEL=stable
+          if [ "${{ github.ref_name }}" = "beta" ]; then CHANNEL=beta; fi
+          node scripts/release.mjs --channel "$CHANNEL"
+          echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
+
+      - name: Abhängigkeiten installieren
+        if: steps.ver.outputs.skip == 'false'
+        run: pnpm install --frozen-lockfile
+
+      - name: Typen prüfen
+        if: steps.ver.outputs.skip == 'false'
+        run: pnpm typecheck
+
+      - name: Tests
+        if: steps.ver.outputs.skip == 'false'
+        run: pnpm test
+
+      - name: Version setzen
+        if: steps.ver.outputs.skip == 'false'
+        run: node scripts/set-version.mjs "${{ steps.ver.outputs.version }}"
+
+      - name: Bauen
+        if: steps.ver.outputs.skip == 'false'
+        run: pnpm build
+
+      - name: Installer erzeugen
+        if: steps.ver.outputs.skip == 'false'
+        working-directory: apps/desktop
+        run: pnpm exec electron-builder --win --publish never
+
+      - name: Beta-Nutzer erhalten auch stabile Versionen
+        if: steps.ver.outputs.skip == 'false' && steps.ver.outputs.channel == 'stable'
+        shell: bash
+        run: cp apps/desktop/release/latest.yml apps/desktop/release/beta.yml
+
+      - name: GitHub-Release veröffentlichen
+        if: steps.ver.outputs.skip == 'false'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          FLAGS=""
+          if [ "${{ steps.ver.outputs.channel }}" = "beta" ]; then FLAGS="--prerelease"; fi
+          gh release create "${{ steps.ver.outputs.tag }}" \
+            --target "${{ github.sha }}" \
+            --title "TRM-Craft ${{ steps.ver.outputs.version }}" \
+            --notes-file release-notes.md $FLAGS \
+            apps/desktop/release/*.exe \
+            apps/desktop/release/*.exe.blockmap \
+            apps/desktop/release/*.yml

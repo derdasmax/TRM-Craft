@@ -1,4 +1,5 @@
 import type { DeepPartial, Settings } from './settings'
+import type { UpdaterState } from './updater'
 
 /**
  * Einheitliche Command-API. UI (IPC) und später die Webseite (WebSocket)
@@ -23,6 +24,11 @@ export interface CommandMap {
   'window.close': { args: void; result: void }
   'window.isMaximized': { args: void; result: boolean }
   'shell.openExternal': { args: string; result: void }
+  'updater.getState': { args: void; result: UpdaterState }
+  'updater.check': { args: void; result: void }
+  'updater.download': { args: void; result: void }
+  'updater.installNow': { args: void; result: void }
+  'updater.skipCountdown': { args: void; result: void }
 }
 
 export type CommandName = keyof CommandMap
@@ -39,6 +45,11 @@ export const commandRoles: Record<CommandName, Role> = {
   'window.close': 'owner',
   'window.isMaximized': 'owner',
   'shell.openExternal': 'owner',
+  'updater.getState': 'viewer',
+  'updater.check': 'admin',
+  'updater.download': 'admin',
+  'updater.installNow': 'owner',
+  'updater.skipCountdown': 'owner',
 }
 
 const roleRank: Record<Role, number> = { viewer: 0, moderator: 1, admin: 2, owner: 3 }
@@ -53,5 +64,6 @@ export const IPC_EVENT_CHANNEL = 'trm:event'
 export interface AppEvents {
   'window.maximized': boolean
   'settings.changed': Settings
+  'updater.state': UpdaterState
 }
 export type EventName = keyof AppEvents

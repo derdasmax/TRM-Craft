@@ -1,0 +1,32 @@
+appId: net.trm.craft
+productName: TRM-Craft
+copyright: TRM
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**
+  - package.json
+asar: true
+asarUnpack:
+  - "**/node_modules/better-sqlite3/**"
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.png
+  artifactName: TRM-Craft-Setup-${version}.${ext}
+nsis:
+  oneClick: true
+  perMachine: false
+  allowToChangeInstallationDirectory: false
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: TRM-Craft
+  # Nutzerdaten liegen in %APPDATA%/TRM-Craft und bleiben bei Deinstallation erhalten.
+  deleteAppDataOnUninstall: false
+publish:
+  provider: github
+  owner: derdasmax
+  repo: TRM-Craft
+  releaseType: release

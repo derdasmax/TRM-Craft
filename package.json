@@ -7,7 +7,10 @@
     "dev": "pnpm --filter @trm/ui dev",
     "dev:app": "pnpm -r --parallel --filter @trm/ui --filter @trm/desktop dev",
     "build": "pnpm -r build",
-    "test": "pnpm -r --if-present test",
+    "test": "pnpm -r --if-present test && vitest run --config vitest.scripts.config.ts",
     "typecheck": "pnpm -r --if-present typecheck"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.7"
   }
 }

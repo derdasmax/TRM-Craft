@@ -35,6 +35,31 @@ const de = {
   'accent.violet': 'Violett',
   'accent.sky': 'Himmel',
   'accent.rose': 'Rose',
+  'upd.title': 'Updates',
+  'upd.channel': 'Update-Kanal',
+  'upd.channel.stable': 'Stabil',
+  'upd.channel.beta': 'Beta',
+  'upd.auto': 'Updates automatisch installieren',
+  'upd.auto.hint': 'Lädt im Hintergrund und installiert beim nächsten Neustart.',
+  'upd.interval': 'Prüfen alle',
+  'upd.hours': 'Stunden',
+  'upd.check': 'Nach Updates suchen',
+  'upd.checking': 'Suche läuft …',
+  'upd.uptodate': 'Du bist auf dem neuesten Stand.',
+  'upd.available': 'Version {v} ist verfügbar.',
+  'upd.downloading': 'Version {v} wird geladen …',
+  'upd.ready': 'Version {v} ist bereit.',
+  'upd.error': 'Update fehlgeschlagen: {e}',
+  'upd.rolledBack': 'Version {v} ist abgestürzt, die vorherige Version wurde wiederhergestellt.',
+  'upd.dialog.title': 'Update verfügbar',
+  'upd.dialog.now': 'Jetzt aktualisieren',
+  'upd.dialog.restart': 'Jetzt neu starten',
+  'upd.dialog.later': 'Später',
+  'upd.dialog.changelog': 'Änderungen',
+  'upd.dialog.nonotes': 'Keine Details verfügbar.',
+  'upd.countdown': 'Laufende Server werden gestoppt. Neustart in {s} Sekunden.',
+  'upd.skip': 'Sofort',
+  'upd.installing': 'Update wird installiert …',
 } as const
 
 type Key = keyof typeof de
@@ -73,16 +98,42 @@ const en: Record<Key, string> = {
   'accent.violet': 'Violet',
   'accent.sky': 'Sky',
   'accent.rose': 'Rose',
+  'upd.title': 'Updates',
+  'upd.channel': 'Update channel',
+  'upd.channel.stable': 'Stable',
+  'upd.channel.beta': 'Beta',
+  'upd.auto': 'Install updates automatically',
+  'upd.auto.hint': 'Downloads in the background and installs on next restart.',
+  'upd.interval': 'Check every',
+  'upd.hours': 'hours',
+  'upd.check': 'Check for updates',
+  'upd.checking': 'Checking …',
+  'upd.uptodate': 'You are up to date.',
+  'upd.available': 'Version {v} is available.',
+  'upd.downloading': 'Downloading version {v} …',
+  'upd.ready': 'Version {v} is ready.',
+  'upd.error': 'Update failed: {e}',
+  'upd.rolledBack': 'Version {v} crashed, the previous version was restored.',
+  'upd.dialog.title': 'Update available',
+  'upd.dialog.now': 'Update now',
+  'upd.dialog.restart': 'Restart now',
+  'upd.dialog.later': 'Later',
+  'upd.dialog.changelog': 'Changes',
+  'upd.dialog.nonotes': 'No details available.',
+  'upd.countdown': 'Running servers are being stopped. Restarting in {s} seconds.',
+  'upd.skip': 'Now',
+  'upd.installing': 'Installing update …',
 }
 
 export const dictionaries = { de, en } as const
 export type { Key }
 
-export function translate(lang: 'de' | 'en', key: Key): string {
-  return dictionaries[lang][key]
+export function translate(lang: 'de' | 'en', key: Key, vars?: Record<string, string | number>): string {
+  const text: string = dictionaries[lang][key]
+  return vars ? text.replace(/\{(\w+)\}/g, (_, k) => String(vars[k] ?? '')) : text
 }
 
 export function useT() {
   const lang = useStore((s) => s.settings.language)
-  return (key: Key) => translate(lang, key)
+  return (key: Key, vars?: Record<string, string | number>) => translate(lang, key, vars)
 }
