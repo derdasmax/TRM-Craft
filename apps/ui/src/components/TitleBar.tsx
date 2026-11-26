@@ -16,16 +16,17 @@ function Logo() {
   )
 }
 
-/** Zeigt, ob die App mit der TRM-Webseite verbunden ist. Nur sichtbar, wenn der Fernzugriff gekoppelt und aktiv ist. */
+/** „Fernzugriff aktiv“ in der Titelleiste, solange die API läuft. Warnfarbe, wenn der Tunnel getrennt ist. */
 function RemoteBadge() {
   const t = useT()
   const r = useStore((s) => s.remote)
   const setPage = useStore((s) => s.setPage)
-  if (!r?.paired || !r.enabled) return null
-  const label = r.connected ? (r.transport === 'polling' ? t('rm.bar.polling') : t('rm.bar.connected')) : t('rm.bar.disconnected')
+  if (!r?.enabled || !r.listening) return null
+  const down = r.mode === 'tunnel' && r.tunnel.phase !== 'connected' && !r.tunnel.serviceInstalled
+  const label = down ? t('rm.bar.down') : t('rm.bar.active')
   return (
-    <button onClick={() => setPage('settings')} title={r.lastError ?? label} className="no-drag ml-4 inline-flex h-6 items-center gap-1.5 rounded-full bg-raised/70 px-2.5 text-[11.5px] text-muted transition-colors hover:text-fg">
-      {r.connected ? <Cloud size={13} strokeWidth={1.75} className="text-accent" /> : <CloudOff size={13} strokeWidth={1.75} className="text-warn" />}
+    <button onClick={() => setPage('settings')} title={r.publicUrl ?? label} className="no-drag ml-4 inline-flex h-6 items-center gap-1.5 rounded-full bg-raised/70 px-2.5 text-[11.5px] text-muted transition-colors hover:text-fg">
+      {down ? <CloudOff size={13} strokeWidth={1.75} className="text-warn" /> : <Cloud size={13} strokeWidth={1.75} className="text-accent" />}
       <span className="hidden sm:inline" role="status">{label}</span>
     </button>
   )

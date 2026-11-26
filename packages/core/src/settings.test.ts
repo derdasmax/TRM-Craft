@@ -23,9 +23,12 @@ describe('settings', () => {
   })
 
   it('Fernzugriff ist standardmäßig aus und prüft Werte', () => {
-    expect(defaultSettings.remote).toMatchObject({ enabled: false, url: '', maxRole: 'admin' })
+    expect(defaultSettings.remote).toMatchObject({ enabled: false, mode: 'tunnel', port: 47821, allowedOrigins: [], maxRole: 'admin' })
     expect(parseSettings({ remote: { maxRole: 'owner' } }).remote.maxRole).toBe('admin')
-    expect(mergeSettings(defaultSettings, { remote: { enabled: true } }).remote.url).toBe('')
+    expect(mergeSettings(defaultSettings, { remote: { enabled: true } }).remote.port).toBe(47821)
+    // Nur exakte https-Origins (oder localhost) sind erlaubt, keine Pfade und keine Platzhalter.
+    expect(parseSettings({ remote: { allowedOrigins: ['https://trm.beispiel.net'] } }).remote.allowedOrigins).toEqual(['https://trm.beispiel.net'])
+    for (const bad of ['*', 'http://trm.beispiel.net', 'https://trm.beispiel.net/pfad', 'trm.beispiel.net']) expect(parseSettings({ remote: { allowedOrigins: [bad] } }).remote.allowedOrigins, bad).toEqual([])
   })
 
   it('begrenzt das Update-Intervall', () => {

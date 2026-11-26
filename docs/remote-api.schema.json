@@ -2,11 +2,16 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://trm-craft/remote-api.schema.json",
   "title": "TRM-Craft Remote-API",
-  "description": "Nachrichten zwischen der TRM-Craft-App und dem TRM-Relay (Webseite). Quelle: packages/remote/src/protocol.ts. Neu erzeugen mit UPDATE_SCHEMA=1.",
-  "protocolVersion": 1,
-  "minProtocolVersion": 1,
+  "description": "Schemas der App-eigenen Remote-API (HTTPS-REST + WebSocket). Quelle: packages/remote/src/protocol.ts. Neu erzeugen mit UPDATE_SCHEMA=1.",
+  "protocolVersion": 2,
+  "minProtocolVersion": 2,
+  "apiBase": "/api/v1",
   "errorCodes": [
+    "unauthorized",
     "disabled",
+    "origin_not_allowed",
+    "host_not_allowed",
+    "rate_limited",
     "unknown_command",
     "local_only",
     "forbidden",
@@ -31,29 +36,553 @@
     ".mcaddon"
   ],
   "definitions": {
-    "Inbound": {
+    "Info": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "const": "TRM-Craft"
+        },
+        "appVersion": {
+          "type": "string"
+        },
+        "protocolVersion": {
+          "type": "integer"
+        },
+        "minProtocolVersion": {
+          "type": "integer"
+        },
+        "deviceName": {
+          "type": "string"
+        },
+        "tunnel": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "appVersion",
+        "protocolVersion",
+        "minProtocolVersion",
+        "deviceName",
+        "tunnel"
+      ],
+      "additionalProperties": false
+    },
+    "PairRequest": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9-]{4,24}$"
+        },
+        "siteName": {
+          "type": "string",
+          "maxLength": 80
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "additionalProperties": false
+    },
+    "PairResponse": {
+      "type": "object",
+      "properties": {
+        "deviceToken": {
+          "type": "string"
+        },
+        "deviceId": {
+          "type": "string"
+        },
+        "deviceName": {
+          "type": "string"
+        },
+        "perms": {
+          "type": "object",
+          "properties": {
+            "upload": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "upload"
+          ],
+          "additionalProperties": false
+        },
+        "maxRole": {
+          "type": "string",
+          "enum": [
+            "viewer",
+            "moderator",
+            "admin"
+          ]
+        }
+      },
+      "required": [
+        "deviceToken",
+        "deviceId",
+        "deviceName",
+        "perms",
+        "maxRole"
+      ],
+      "additionalProperties": false
+    },
+    "SessionRequest": {
+      "type": "object",
+      "properties": {
+        "user": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "owner",
+            "admin",
+            "moderator",
+            "viewer"
+          ]
+        },
+        "ttlSec": {
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 3600
+        }
+      },
+      "required": [
+        "user",
+        "role"
+      ],
+      "additionalProperties": false
+    },
+    "SessionResponse": {
+      "type": "object",
+      "properties": {
+        "sessionToken": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "number"
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "owner",
+            "admin",
+            "moderator",
+            "viewer"
+          ]
+        },
+        "perms": {
+          "type": "object",
+          "properties": {
+            "upload": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "upload"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "sessionToken",
+        "expiresAt",
+        "role",
+        "perms"
+      ],
+      "additionalProperties": false
+    },
+    "Me": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "device",
+            "session"
+          ]
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "owner",
+            "admin",
+            "moderator",
+            "viewer"
+          ]
+        },
+        "perms": {
+          "type": "object",
+          "properties": {
+            "upload": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "upload"
+          ],
+          "additionalProperties": false
+        },
+        "user": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "kind",
+        "role",
+        "perms"
+      ],
+      "additionalProperties": false
+    },
+    "CmdRequest": {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "args": {}
+      },
+      "required": [
+        "command"
+      ],
+      "additionalProperties": false
+    },
+    "CmdResponse": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "type": "boolean",
+              "const": true
+            },
+            "result": {}
+          },
+          "required": [
+            "ok"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "type": "boolean",
+              "const": false
+            },
+            "error": {
+              "type": "string"
+            },
+            "code": {
+              "type": "string",
+              "enum": [
+                "unauthorized",
+                "disabled",
+                "origin_not_allowed",
+                "host_not_allowed",
+                "rate_limited",
+                "unknown_command",
+                "local_only",
+                "forbidden",
+                "invalid_args",
+                "not_found",
+                "conflict",
+                "server_running",
+                "no_permission",
+                "too_large",
+                "unsupported_type",
+                "wrong_loader",
+                "checksum_mismatch",
+                "network",
+                "incompatible",
+                "internal"
+              ]
+            }
+          },
+          "required": [
+            "ok",
+            "error",
+            "code"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ErrorResponse": {
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "const": false
+        },
+        "error": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string",
+          "enum": [
+            "unauthorized",
+            "disabled",
+            "origin_not_allowed",
+            "host_not_allowed",
+            "rate_limited",
+            "unknown_command",
+            "local_only",
+            "forbidden",
+            "invalid_args",
+            "not_found",
+            "conflict",
+            "server_running",
+            "no_permission",
+            "too_large",
+            "unsupported_type",
+            "wrong_loader",
+            "checksum_mismatch",
+            "network",
+            "incompatible",
+            "internal"
+          ]
+        }
+      },
+      "required": [
+        "ok",
+        "error",
+        "code"
+      ],
+      "additionalProperties": false
+    },
+    "ServerSummary": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "edition": {
+          "type": "string",
+          "enum": [
+            "java",
+            "bedrock"
+          ]
+        },
+        "loader": {
+          "type": "string"
+        },
+        "mcVersion": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "stopped",
+            "starting",
+            "running",
+            "stopping",
+            "crashed"
+          ]
+        },
+        "players": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "port": {
+          "type": "integer"
+        },
+        "uptimeMs": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "cpu": {
+          "type": "number"
+        },
+        "ramMb": {
+          "type": "number"
+        },
+        "tps": {
+          "type": "number"
+        },
+        "crash": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "message"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "edition",
+        "loader",
+        "mcVersion",
+        "status",
+        "players",
+        "port",
+        "uptimeMs"
+      ],
+      "additionalProperties": false
+    },
+    "UploadBeginRequest": {
+      "type": "object",
+      "properties": {
+        "uploadId": {
+          "type": "string",
+          "pattern": "^[\\w-]{4,64}$"
+        },
+        "serverId": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "fileName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "size": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{64}$"
+        },
+        "restartAfter": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "serverId",
+        "fileName",
+        "size",
+        "sha256"
+      ],
+      "additionalProperties": false
+    },
+    "UploadBeginResponse": {
+      "type": "object",
+      "properties": {
+        "uploadId": {
+          "type": "string"
+        },
+        "received": {
+          "type": "integer"
+        },
+        "chunkSize": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "uploadId",
+        "received",
+        "chunkSize"
+      ],
+      "additionalProperties": false
+    },
+    "UploadChunkResponse": {
+      "type": "object",
+      "properties": {
+        "received": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "received"
+      ],
+      "additionalProperties": false
+    },
+    "UploadFinishResponse": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "kind",
+        "warnings"
+      ],
+      "additionalProperties": false
+    },
+    "UploadStatus": {
+      "type": "object",
+      "properties": {
+        "uploadId": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "receiving",
+            "done",
+            "failed",
+            "undone"
+          ]
+        },
+        "received": {
+          "type": "integer"
+        },
+        "size": {
+          "type": "integer"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "uploadId",
+        "status",
+        "received",
+        "size"
+      ],
+      "additionalProperties": false
+    },
+    "WsInbound": {
       "anyOf": [
         {
           "type": "object",
           "properties": {
             "type": {
               "type": "string",
-              "const": "welcome"
+              "const": "auth"
             },
-            "protocolVersion": {
-              "type": "integer"
-            },
-            "minProtocolVersion": {
-              "type": "integer"
-            },
-            "siteName": {
+            "token": {
               "type": "string",
-              "maxLength": 100
+              "minLength": 8,
+              "maxLength": 200
             }
           },
           "required": [
             "type",
-            "protocolVersion"
+            "token"
           ],
           "additionalProperties": false
         },
@@ -72,26 +601,12 @@
               "type": "string",
               "maxLength": 60
             },
-            "args": {},
-            "role": {
-              "type": "string",
-              "enum": [
-                "owner",
-                "admin",
-                "moderator",
-                "viewer"
-              ]
-            },
-            "user": {
-              "type": "string",
-              "maxLength": 80
-            }
+            "args": {}
           },
           "required": [
             "type",
             "id",
-            "command",
-            "role"
+            "command"
           ],
           "additionalProperties": false
         },
@@ -130,218 +645,6 @@
           "properties": {
             "type": {
               "type": "string",
-              "const": "sessions"
-            },
-            "list": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "id": {
-                    "type": "string",
-                    "maxLength": 64
-                  },
-                  "name": {
-                    "type": "string",
-                    "maxLength": 80
-                  },
-                  "role": {
-                    "type": "string",
-                    "enum": [
-                      "owner",
-                      "admin",
-                      "moderator",
-                      "viewer"
-                    ]
-                  },
-                  "since": {
-                    "type": "number"
-                  }
-                },
-                "required": [
-                  "id",
-                  "name",
-                  "role",
-                  "since"
-                ],
-                "additionalProperties": false
-              },
-              "maxItems": 100
-            }
-          },
-          "required": [
-            "type",
-            "list"
-          ],
-          "additionalProperties": false
-        },
-        {
-          "type": "object",
-          "properties": {
-            "type": {
-              "type": "string",
-              "const": "upload.begin"
-            },
-            "uploadId": {
-              "type": "string",
-              "pattern": "^[\\w-]{4,64}$"
-            },
-            "serverId": {
-              "type": "string",
-              "maxLength": 40
-            },
-            "fileName": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 200
-            },
-            "size": {
-              "type": "integer",
-              "exclusiveMinimum": 0
-            },
-            "sha256": {
-              "type": "string",
-              "pattern": "^[0-9a-fA-F]{64}$"
-            },
-            "restartAfter": {
-              "type": "boolean"
-            },
-            "uploader": {
-              "type": "string",
-              "maxLength": 80
-            }
-          },
-          "required": [
-            "type",
-            "uploadId",
-            "serverId",
-            "fileName",
-            "size",
-            "sha256"
-          ],
-          "additionalProperties": false
-        },
-        {
-          "type": "object",
-          "properties": {
-            "type": {
-              "type": "string",
-              "const": "upload.chunk"
-            },
-            "uploadId": {
-              "type": "string",
-              "pattern": "^[\\w-]{4,64}$"
-            },
-            "offset": {
-              "type": "integer",
-              "minimum": 0
-            },
-            "data": {
-              "type": "string",
-              "maxLength": 6000000
-            }
-          },
-          "required": [
-            "type",
-            "uploadId",
-            "offset",
-            "data"
-          ],
-          "additionalProperties": false
-        },
-        {
-          "type": "object",
-          "properties": {
-            "type": {
-              "type": "string",
-              "const": "upload.end"
-            },
-            "uploadId": {
-              "type": "string",
-              "pattern": "^[\\w-]{4,64}$"
-            }
-          },
-          "required": [
-            "type",
-            "uploadId"
-          ],
-          "additionalProperties": false
-        },
-        {
-          "type": "object",
-          "properties": {
-            "type": {
-              "type": "string",
-              "const": "upload.cancel"
-            },
-            "uploadId": {
-              "type": "string",
-              "pattern": "^[\\w-]{4,64}$"
-            }
-          },
-          "required": [
-            "type",
-            "uploadId"
-          ],
-          "additionalProperties": false
-        },
-        {
-          "type": "object",
-          "properties": {
-            "type": {
-              "type": "string",
-              "const": "upload.fetch"
-            },
-            "uploadId": {
-              "type": "string",
-              "pattern": "^[\\w-]{4,64}$"
-            },
-            "serverId": {
-              "type": "string",
-              "maxLength": 40
-            },
-            "fileName": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 200
-            },
-            "size": {
-              "type": "integer",
-              "exclusiveMinimum": 0
-            },
-            "sha256": {
-              "type": "string",
-              "pattern": "^[0-9a-fA-F]{64}$"
-            },
-            "url": {
-              "type": "string",
-              "format": "uri",
-              "maxLength": 2000
-            },
-            "restartAfter": {
-              "type": "boolean"
-            },
-            "uploader": {
-              "type": "string",
-              "maxLength": 80
-            }
-          },
-          "required": [
-            "type",
-            "uploadId",
-            "serverId",
-            "fileName",
-            "size",
-            "sha256",
-            "url"
-          ],
-          "additionalProperties": false
-        },
-        {
-          "type": "object",
-          "properties": {
-            "type": {
-              "type": "string",
               "const": "ping"
             }
           },
@@ -352,7 +655,7 @@
         }
       ]
     },
-    "Outbound": {
+    "WsOutbound": {
       "anyOf": [
         {
           "type": "object",
@@ -367,27 +670,35 @@
             "minProtocolVersion": {
               "type": "integer"
             },
-            "deviceId": {
+            "appVersion": {
               "type": "string"
             },
             "deviceName": {
               "type": "string"
             },
-            "appVersion": {
-              "type": "string"
-            },
-            "platform": {
-              "type": "string"
-            },
-            "canUpload": {
-              "type": "boolean"
-            },
-            "transport": {
+            "role": {
               "type": "string",
               "enum": [
-                "websocket",
-                "polling"
+                "owner",
+                "admin",
+                "moderator",
+                "viewer"
               ]
+            },
+            "perms": {
+              "type": "object",
+              "properties": {
+                "upload": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "upload"
+              ],
+              "additionalProperties": false
+            },
+            "user": {
+              "type": "string"
             },
             "servers": {
               "type": "array",
@@ -483,11 +794,11 @@
             "type",
             "protocolVersion",
             "minProtocolVersion",
-            "deviceName",
             "appVersion",
-            "platform",
-            "canUpload",
-            "transport",
+            "deviceName",
+            "role",
+            "perms",
+            "user",
             "servers"
           ],
           "additionalProperties": false
@@ -642,7 +953,11 @@
             "code": {
               "type": "string",
               "enum": [
+                "unauthorized",
                 "disabled",
+                "origin_not_allowed",
+                "host_not_allowed",
+                "rate_limited",
                 "unknown_command",
                 "local_only",
                 "forbidden",
@@ -706,80 +1021,7 @@
           "properties": {
             "type": {
               "type": "string",
-              "const": "upload.ready"
-            },
-            "uploadId": {
-              "type": "string"
-            },
-            "received": {
-              "type": "integer"
-            }
-          },
-          "required": [
-            "type",
-            "uploadId",
-            "received"
-          ],
-          "additionalProperties": false
-        },
-        {
-          "type": "object",
-          "properties": {
-            "type": {
-              "type": "string",
-              "const": "upload.ack"
-            },
-            "uploadId": {
-              "type": "string"
-            },
-            "received": {
-              "type": "integer"
-            }
-          },
-          "required": [
-            "type",
-            "uploadId",
-            "received"
-          ],
-          "additionalProperties": false
-        },
-        {
-          "type": "object",
-          "properties": {
-            "type": {
-              "type": "string",
-              "const": "upload.done"
-            },
-            "uploadId": {
-              "type": "string"
-            },
-            "kind": {
-              "type": "string"
-            },
-            "warnings": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          },
-          "required": [
-            "type",
-            "uploadId",
-            "kind",
-            "warnings"
-          ],
-          "additionalProperties": false
-        },
-        {
-          "type": "object",
-          "properties": {
-            "type": {
-              "type": "string",
-              "const": "upload.failed"
-            },
-            "uploadId": {
-              "type": "string"
+              "const": "error"
             },
             "error": {
               "type": "string"
@@ -787,7 +1029,11 @@
             "code": {
               "type": "string",
               "enum": [
+                "unauthorized",
                 "disabled",
+                "origin_not_allowed",
+                "host_not_allowed",
+                "rate_limited",
                 "unknown_command",
                 "local_only",
                 "forbidden",
@@ -808,154 +1054,12 @@
           },
           "required": [
             "type",
-            "uploadId",
             "error",
             "code"
           ],
           "additionalProperties": false
         }
       ]
-    },
-    "PairResponse": {
-      "type": "object",
-      "properties": {
-        "deviceToken": {
-          "type": "string",
-          "minLength": 16,
-          "maxLength": 4096
-        },
-        "deviceId": {
-          "type": "string",
-          "maxLength": 100
-        },
-        "siteName": {
-          "type": "string",
-          "maxLength": 100
-        },
-        "perms": {
-          "type": "object",
-          "properties": {
-            "upload": {
-              "type": "boolean",
-              "default": false
-            }
-          },
-          "additionalProperties": false,
-          "default": {}
-        }
-      },
-      "required": [
-        "deviceToken",
-        "deviceId"
-      ],
-      "additionalProperties": false
-    },
-    "PairStart": {
-      "type": "object",
-      "properties": {
-        "code": {
-          "type": "string",
-          "pattern": "^[A-Za-z0-9-]{4,24}$"
-        },
-        "pollId": {
-          "type": "string",
-          "pattern": "^[\\w-]{8,80}$"
-        },
-        "expiresInSec": {
-          "type": "integer",
-          "minimum": 10,
-          "maximum": 3600
-        }
-      },
-      "required": [
-        "code",
-        "pollId",
-        "expiresInSec"
-      ],
-      "additionalProperties": false
-    },
-    "PairStatus": {
-      "anyOf": [
-        {
-          "type": "object",
-          "properties": {
-            "status": {
-              "type": "string",
-              "const": "pending"
-            }
-          },
-          "required": [
-            "status"
-          ],
-          "additionalProperties": false
-        },
-        {
-          "type": "object",
-          "properties": {
-            "status": {
-              "type": "string",
-              "const": "paired"
-            },
-            "deviceToken": {
-              "type": "string",
-              "minLength": 16,
-              "maxLength": 4096
-            },
-            "deviceId": {
-              "type": "string",
-              "maxLength": 100
-            },
-            "siteName": {
-              "type": "string",
-              "maxLength": 100
-            },
-            "perms": {
-              "type": "object",
-              "properties": {
-                "upload": {
-                  "type": "boolean",
-                  "default": false
-                }
-              },
-              "additionalProperties": false,
-              "default": {}
-            }
-          },
-          "required": [
-            "status",
-            "deviceToken",
-            "deviceId"
-          ],
-          "additionalProperties": false
-        }
-      ]
-    },
-    "PollSession": {
-      "type": "object",
-      "properties": {
-        "sessionId": {
-          "type": "string",
-          "pattern": "^[\\w-]{8,80}$"
-        }
-      },
-      "required": [
-        "sessionId"
-      ],
-      "additionalProperties": false
-    },
-    "PollResponse": {
-      "type": "object",
-      "properties": {
-        "messages": {
-          "type": "array",
-          "items": {},
-          "maxItems": 500
-        }
-      },
-      "required": [
-        "messages"
-      ],
-      "additionalProperties": false
     }
   }
 }

@@ -1,5 +1,8 @@
 import { zodToJsonSchema } from 'zod-to-json-schema'
-import { ERROR_CODES, InboundSchema, MIN_PROTOCOL_VERSION, OutboundSchema, PairResponseSchema, PairStartSchema, PairStatusSchema, PollResponseSchema, PollSessionSchema, PROTOCOL_VERSION, UPLOAD_EXTENSIONS } from './protocol'
+import {
+  CmdRequestSchema, CmdResponseSchema, ERROR_CODES, ErrorResponseSchema, InfoSchema, MeSchema, MIN_PROTOCOL_VERSION, PairRequestSchema, PairResponseSchema, PROTOCOL_VERSION, ServerSummarySchema,
+  SessionRequestSchema, SessionResponseSchema, UploadBeginRequestSchema, UploadBeginResponseSchema, UploadChunkResponseSchema, UploadFinishResponseSchema, UploadStatusSchema, UPLOAD_EXTENSIONS, WsInboundSchema, WsOutboundSchema, API_BASE,
+} from './protocol'
 
 const j = (s: Parameters<typeof zodToJsonSchema>[0], name: string) => {
   const r = zodToJsonSchema(s, { name, $refStrategy: 'none', target: 'jsonSchema7' }) as { definitions?: Record<string, unknown> }
@@ -12,24 +15,32 @@ export function buildSchema() {
     $schema: 'http://json-schema.org/draft-07/schema#',
     $id: 'https://trm-craft/remote-api.schema.json',
     title: 'TRM-Craft Remote-API',
-    description: 'Nachrichten zwischen der TRM-Craft-App und dem TRM-Relay (Webseite). Quelle: packages/remote/src/protocol.ts. Neu erzeugen mit UPDATE_SCHEMA=1.',
+    description: 'Schemas der App-eigenen Remote-API (HTTPS-REST + WebSocket). Quelle: packages/remote/src/protocol.ts. Neu erzeugen mit UPDATE_SCHEMA=1.',
     protocolVersion: PROTOCOL_VERSION,
     minProtocolVersion: MIN_PROTOCOL_VERSION,
+    apiBase: API_BASE,
     errorCodes: ERROR_CODES,
     uploadExtensions: UPLOAD_EXTENSIONS,
     definitions: {
-      /** Webseite → App (WebSocket-Textnachricht bzw. Eintrag in `messages` beim Polling) */
-      Inbound: j(InboundSchema, 'Inbound'),
-      /** App → Webseite */
-      Outbound: j(OutboundSchema, 'Outbound'),
-      /** Antwort von POST /api/devices/pair und GET /api/devices/pair/status (paired) */
+      Info: j(InfoSchema, 'Info'),
+      PairRequest: j(PairRequestSchema, 'PairRequest'),
       PairResponse: j(PairResponseSchema, 'PairResponse'),
-      /** Antwort von POST /api/devices/pair/start */
-      PairStart: j(PairStartSchema, 'PairStart'),
-      PairStatus: j(PairStatusSchema, 'PairStatus'),
-      /** Long-Polling */
-      PollSession: j(PollSessionSchema, 'PollSession'),
-      PollResponse: j(PollResponseSchema, 'PollResponse'),
+      SessionRequest: j(SessionRequestSchema, 'SessionRequest'),
+      SessionResponse: j(SessionResponseSchema, 'SessionResponse'),
+      Me: j(MeSchema, 'Me'),
+      CmdRequest: j(CmdRequestSchema, 'CmdRequest'),
+      CmdResponse: j(CmdResponseSchema, 'CmdResponse'),
+      ErrorResponse: j(ErrorResponseSchema, 'ErrorResponse'),
+      ServerSummary: j(ServerSummarySchema, 'ServerSummary'),
+      UploadBeginRequest: j(UploadBeginRequestSchema, 'UploadBeginRequest'),
+      UploadBeginResponse: j(UploadBeginResponseSchema, 'UploadBeginResponse'),
+      UploadChunkResponse: j(UploadChunkResponseSchema, 'UploadChunkResponse'),
+      UploadFinishResponse: j(UploadFinishResponseSchema, 'UploadFinishResponse'),
+      UploadStatus: j(UploadStatusSchema, 'UploadStatus'),
+      /** Browser → App (WebSocket) */
+      WsInbound: j(WsInboundSchema, 'WsInbound'),
+      /** App → Browser (WebSocket) */
+      WsOutbound: j(WsOutboundSchema, 'WsOutbound'),
     },
   }
 }

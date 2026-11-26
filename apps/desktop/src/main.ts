@@ -9,11 +9,9 @@ import { createTray } from './tray'
 import { registerShutdownHook, stopAll } from './lifecycle'
 import { activeWorld, buildJoinInfo, diffServerEvents, checkReachable, Cloudflare, Ddns, Firewall, installModpack, isDiscordWebhook, localIps, ModManager, PlayitTunnel, publicIp, ruleName, Scheduler, ServerManager, UpnpClient } from '@trm/servers'
 import { Notifier } from './notifier'
-import { httpBase, LongPollSocket, pairDevice, RemoteClient, startPairing, UploadManager, waitForPairing, type PairResponse, type ServerSummary, type UploadServer } from '@trm/remote'
-import { commandRoles, type RemoteStatus } from '@trm/core'
-import { hostname } from 'node:os'
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import WebSocket from 'ws'
+import type { ServerSummary, UploadServer } from '@trm/remote'
+import { commandRoles } from '@trm/core'
+import { RemoteHost } from './remote-host'
 import { join } from 'node:path'
 import { SecretStore } from './secrets'
 
@@ -27,10 +25,7 @@ let mods: ModManager
 let scheduler: Scheduler
 let notifier: Notifier
 let ddns: Ddns
-let remote: RemoteClient
-let uploads: UploadManager
-let remoteState: { connected: boolean; transport: 'websocket' | 'polling'; siteName?: string; error?: string; sessions: RemoteStatus['sessions'] } = { connected: false, transport: 'websocket', sessions: [] }
-let pairing: { code: string; expiresAt: number; abort: AbortController } | null = null
+let remote: RemoteHost
 const eventPrev = new Map<string, { status: ServerView['status']; players: string[] }>()
 let tunnel: PlayitTunnel
 const upnp = new UpnpClient()
@@ -38,24 +33,6 @@ let upnpReady = false
 const firewall = new Firewall()
 /** Von TRM-Craft angelegte UPnP-Weiterleitungen je Server. */
 const mapped = new Map<string, { port: number; protocol: 'TCP' | 'UDP' }[]>()
-
-const deviceFile = () => join(dataDir(), 'remote-device.json')
-function readDevice(): { deviceId: string; siteName?: string; canUpload: boolean } | null {
-  try { return existsSync(deviceFile()) ? JSON.parse(readFileSync(deviceFile(), 'utf8')) : null } catch { return null }
-}
-function remoteStatus(): RemoteStatus {
-  const r = settings.get().remote
-  const dev = readDevice()
-  return { enabled: r.enabled, paired: secrets.has('remote'), connected: remoteState.connected, url: r.url, siteName: remoteState.siteName ?? dev?.siteName, lastError: remoteState.error, sessions: remoteState.sessions, canUpload: !!dev?.canUpload, transport: remoteState.transport, pairing: pairing ? { code: pairing.code, expiresAt: pairing.expiresAt } : undefined }
-}
-
-/** Speichert das Geräte-Token verschlüsselt und verbindet. Gemeinsam für beide Kopplungs-Wege. */
-function finishPairing(res: PairResponse) {
-  secrets.set('remote', res.deviceToken)
-  writeFileSync(deviceFile(), JSON.stringify({ deviceId: res.deviceId, siteName: res.siteName, canUpload: res.perms.upload }))
-  emit('settings.changed', settings.update({ remote: { enabled: true } }))
-  remote.start()
-}
 
 /** Kompakter Überblick für `hello` und `snapshot`. */
 function summaries(): ServerSummary[] {
@@ -114,7 +91,7 @@ const handlers: Record<CommandName, (args: any) => unknown> = {
     const before = JSON.stringify(settings.get().remote)
     const next = settings.update(patch)
     updater?.applySettings()
-    if (remote && JSON.stringify(next.remote) !== before) { remote.start(); emit('remote.status', remoteStatus()) }
+    if (remote && JSON.stringify(next.remote) !== before) void remote.apply()
     emit('settings.changed', next)
     return next
   },
@@ -247,38 +224,19 @@ const handlers: Record<CommandName, (args: any) => unknown> = {
   'net.tunnel.state': () => tunnel.state,
   'net.tunnel.start': () => tunnel.start(),
   'net.tunnel.stop': () => tunnel.stop(),
-  'remote.status': () => remoteStatus(),
-  'remote.pair': async (code) => {
-    const r = settings.get().remote
-    finishPairing(await pairDevice(r.url, code, r.deviceName || hostname(), app.getVersion()))
-    return remoteStatus()
-  },
-  // Kopplung "umgekehrt": Die App zeigt einen Code, der auf der Webseite eingegeben wird.
-  'remote.pairStart': async () => {
-    const r = settings.get().remote
-    pairing?.abort.abort()
-    const p = await startPairing(r.url, r.deviceName || hostname(), app.getVersion())
-    const abort = new AbortController()
-    pairing = { code: p.code, expiresAt: p.expiresAt, abort }
-    void waitForPairing(r.url, p, fetch, { signal: abort.signal })
-      .then((res) => { pairing = null; finishPairing(res) })
-      .catch((e: Error) => { pairing = null; remoteState = { ...remoteState, error: e.message }; emit('remote.status', remoteStatus()) })
-    return remoteStatus()
-  },
-  'remote.pairCancel': () => {
-    pairing?.abort.abort()
-    pairing = null
-    emit('remote.status', remoteStatus())
-  },
-  'remote.unpair': () => {
-    secrets.delete('remote')
-    rmSync(deviceFile(), { force: true })
-    emit('settings.changed', settings.update({ remote: { enabled: false } }))
-    remote.stop()
-    emit('remote.status', remoteStatus())
-  },
-  'remote.uploads': () => uploads.history(),
-  'remote.undo': (id) => uploads.undo(id),
+  'remote.status': () => remote.status(),
+  'remote.pairStart': ({ upload }) => remote.pairStart(upload),
+  'remote.pairCancel': () => remote.pairCancel(),
+  'remote.claim': ({ siteUrl, code, upload }) => remote.claim(siteUrl, code, upload),
+  'remote.devices': () => remote.deviceList(),
+  'remote.revoke': (id) => remote.revoke(id),
+  'remote.tunnel.setup': ({ domain, sub }) => remote.tunnelSetup(domain, sub),
+  'remote.tunnel.start': () => remote.tunnelStart(),
+  'remote.tunnel.stop': () => remote.tunnelStop(),
+  'remote.tunnel.service': ({ install }) => remote.tunnelService(install),
+  'remote.tunnel.remove': () => remote.tunnelRemove(),
+  'remote.uploads': () => remote.uploads.history(),
+  'remote.undo': (id) => remote.uploads.undo(id),
   'secrets.set': ({ name, value }) => {
     if (!/^(curseforge|cloudflare|discord:[a-z0-9][a-z0-9-]{0,39})$/.test(name)) throw new Error('Unbekanntes Geheimnis.')
     if (name.startsWith('discord:') && !isDiscordWebhook(value.trim())) throw new Error('Das ist keine gültige Discord-Webhook-URL.')
@@ -437,39 +395,6 @@ app.whenReady().then(async () => {
   })
   ddns = new Ddns({ file: join(dataDir(), 'domains.json'), token: () => secrets.get('cloudflare'), publicIp: () => publicIp(), portOf: (id) => { try { return servers.recordOf(id).port } catch { return null } } })
   tunnel = new PlayitTunnel({ dir: join(dataDir(), 'runtimes', 'playit'), emit: (s) => emit('net.tunnel', s) })
-  uploads = new UploadManager({
-    dir: join(dataDir(), 'uploads'),
-    limitBytes: () => settings.get().remote.uploadLimitMb * 1048576,
-    canUpload: () => !!readDevice()?.canUpload,
-    siteHost: () => { try { return new URL(settings.get().remote.url).hostname } catch { return null } },
-    send: (m) => remote.reply(m),
-    emit: (r) => { emit('remote.upload', r); remote.forward('remote.upload', r) },
-    restore: (id, file) => servers.backupRestore(id, file),
-    server: (id): UploadServer | null => {
-      try {
-        const rec = servers.recordOf(id)
-        const dir = servers.serverDir(id)
-        return {
-          rec, dir, name: rec.name, levelName: () => activeWorld(dir),
-          get running() { return ['running', 'starting'].includes(servers.statusOf(id)) },
-          backup: async (label) => (await servers.backupCreate(id, label)).file,
-          restart: (sec) => servers.restartWithWarning(id, sec),
-        }
-      } catch { return null }
-    },
-  })
-  remote = new RemoteClient({
-    config: () => { const r = settings.get().remote; return { enabled: r.enabled, url: r.url, maxRole: r.maxRole } },
-    token: () => secrets.get('remote'),
-    create: (url, token) => new WebSocket(url, { headers: { authorization: `Bearer ${token}` }, handshakeTimeout: 10_000, maxPayload: 8 * 1024 * 1024 }) as never,
-    exec: (c, a) => Promise.resolve(handlers[c](a)),
-    known: isCommand,
-    createPoll: (url, token) => new LongPollSocket(httpBase(url), token),
-    hello: () => ({ deviceId: readDevice()?.deviceId, deviceName: settings.get().remote.deviceName || hostname(), appVersion: app.getVersion(), platform: process.platform, canUpload: !!readDevice()?.canUpload, servers: summaries() }),
-    snapshot: summaries,
-    uploads,
-    onState: (st) => { remoteState = st; emit('remote.status', remoteStatus()) },
-  })
   scheduler = new Scheduler(
     join(dataDir(), 'schedules.json'),
     {
@@ -487,6 +412,28 @@ app.whenReady().then(async () => {
     decrypt: (d) => safeStorage.decryptString(d),
   })
   mods = new ModManager({ servers, curseKey: () => secrets.get('curseforge') })
+  remote = new RemoteHost({
+    dir: dataDir(), appVersion: app.getVersion(),
+    settings: () => settings.get(),
+    patchSettings: (p) => { const n = settings.update(p); emit('settings.changed', n); return n },
+    secrets: () => secrets, emit,
+    exec: (c, a) => Promise.resolve(handlers[c](a)),
+    known: isCommand, summaries,
+    restore: (id, file) => servers.backupRestore(id, file),
+    log: (m) => console.log(`[remote] ${m}`),
+    uploadServer: (id): UploadServer | null => {
+      try {
+        const rec = servers.recordOf(id)
+        const dir = servers.serverDir(id)
+        return {
+          rec, dir, name: rec.name, levelName: () => activeWorld(dir),
+          get running() { return ['running', 'starting'].includes(servers.statusOf(id)) },
+          backup: async (label) => (await servers.backupCreate(id, label)).file,
+          restart: (sec) => servers.restartWithWarning(id, sec),
+        }
+      } catch { return null }
+    },
+  })
   // Vor Updates/Beenden: Spieler warnen und Server sauber stoppen. Danach laufen sie von selbst wieder an.
   registerShutdownHook({ name: 'servers', activeCount: () => servers.activeCount(), announce: (s) => servers.announce(s), stop: ({ resume }) => servers.shutdownAll(resume) })
   updater = new UpdaterService(() => settings.get(), (s) => emit('updater.state', s), rolledBackFrom)
@@ -501,7 +448,7 @@ app.whenReady().then(async () => {
   void servers.resume()
   servers.startMonitoring()
   ddns.start()
-  remote.start()
+  void remote.apply()
   scheduler.start()
 })
 
@@ -512,7 +459,7 @@ app.on('before-quit', (e) => {
   scheduler?.stop()
   servers?.stopMonitoring()
   ddns?.stop()
-  remote?.stop()
+  void remote?.shutdown()
   tunnel?.stop()
   // Server sauber stoppen, dann endgültig beenden.
   Promise.all([stopAll(), upnpCleanup()]).finally(() => app.quit())

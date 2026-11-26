@@ -24,9 +24,17 @@ export const SettingsSchema = z.object({
   remote: z
     .object({
       enabled: z.boolean().default(false),
-      /** wss://-Adresse der TRM-Webseite (Agent-Endpunkt). */
-      url: z.string().max(300).default(''),
-      /** Höchste Rolle, die über die Webseite ausgeführt werden darf. */
+      /** `tunnel`: nur über Cloudflare Tunnel erreichbar (Loopback). `direct`: HTTPS mit eigenem Zertifikat auf allen Adressen. */
+      mode: z.enum(['tunnel', 'direct']).default('tunnel'),
+      /** Port der lokalen API. */
+      port: z.number().int().min(1024).max(65535).default(47821),
+      /** Nur diese Origins (z. B. https://trm.meinname.net) dürfen die API aus dem Browser aufrufen. */
+      allowedOrigins: z.array(z.string().max(200).refine((o) => { try { const u = new URL(o); return u.origin === o && (u.protocol === 'https:' || u.hostname === 'localhost') } catch { return false } }, 'Ungültige Origin')).max(10).default([]),
+      /** Öffentlicher Hostname der API (Tunnel-Adresse, z. B. craft.meinname.net). */
+      publicHost: z.string().max(200).default(''),
+      tlsCertPath: z.string().max(500).default(''),
+      tlsKeyPath: z.string().max(500).default(''),
+      /** Höchste Rolle, die über die API ausgeführt werden darf. */
       maxRole: z.enum(['viewer', 'moderator', 'admin']).default('admin'),
       uploadLimitMb: z.number().int().min(1).max(20480).default(1024),
       deviceName: z.string().max(60).default(''),

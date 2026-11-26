@@ -20,7 +20,7 @@ async function zip(files: Record<string, string>): Promise<Buffer> {
 }
 const sha = (b: Buffer) => createHash('sha256').update(b).digest('hex')
 
-function setup(o: { server?: Partial<ServerRecord>; running?: boolean; canUpload?: boolean; limit?: number; download?: never } = {}) {
+function setup(o: { server?: Partial<ServerRecord>; running?: boolean; canUpload?: boolean; limit?: number } = {}) {
   const dir = tmp('trm-srv-')
   const dataDir = tmp('trm-data-')
   const sent: Record<string, unknown>[] = []
@@ -32,8 +32,7 @@ function setup(o: { server?: Partial<ServerRecord>; running?: boolean; canUpload
   }
   const mk = () => new UploadManager({
     dir: dataDir, limitBytes: () => o.limit ?? 50 * 1048576, canUpload: () => o.canUpload ?? true, server: (id) => (id === 's1' ? srv : null),
-    siteHost: () => 'trm.example', send: (m) => sent.push(m), emit: (r) => emitted.push(r), restore: async (_s, f) => void calls.restored.push(f),
-    download: o.download,
+    send: (m) => sent.push(m), emit: (r) => emitted.push(r), restore: async (_s, f) => void calls.restored.push(f),
   })
   return { m: mk(), mk, dir, sent, emitted, calls, last: (t: string) => sent.filter((x) => x.type === t).at(-1) }
 }
@@ -150,18 +149,6 @@ describe('Upload: Sicherheit und Grenzen', () => {
     begin(t.m, 'upload-8', jar, 'a.jar')
     t.m.chunk({ uploadId: 'upload-8', offset: 0, data: Buffer.from('abcdef').toString('base64') })
     expect(t.last('upload.failed')).toMatchObject({ error: expect.stringMatching(/Datenmenge/) })
-  })
-
-  it('Fetch: lädt nur vom Host der Webseite', async () => {
-    const jar = await zip({ 'fabric.mod.json': '{}' })
-    const t = setup({ download: (async (o: { dest: string }) => { writeFileSync(o.dest, jar) }) as never })
-    await t.m.fetch({ uploadId: 'fetch-1', serverId: 's1', fileName: 'f.jar', size: jar.length, sha256: sha(jar), url: 'https://evil.example/f.jar' })
-    expect(t.last('upload.failed')).toMatchObject({ error: expect.stringMatching(/nur von der verbundenen Webseite/) })
-    await t.m.fetch({ uploadId: 'fetch-2', serverId: 's1', fileName: 'f.jar', size: jar.length, sha256: sha(jar), url: 'http://trm.example/f.jar' })
-    expect(t.last('upload.failed')).toBeDefined()
-    await t.m.fetch({ uploadId: 'fetch-3', serverId: 's1', fileName: 'f.jar', size: jar.length, sha256: sha(jar), url: 'https://trm.example/files/f.jar' })
-    expect(t.last('upload.done')).toMatchObject({ uploadId: 'fetch-3' })
-    expect(existsSync(join(t.dir, 'mods', 'f.jar'))).toBe(true)
   })
 })
 

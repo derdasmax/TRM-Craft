@@ -21,7 +21,7 @@ export class Cloudflare {
     const res = await this.f(url, { method, headers: { authorization: `Bearer ${this.token}`, 'content-type': 'application/json', accept: 'application/json' }, body: body ? JSON.stringify(body) : undefined })
     const env = Envelope.safeParse(await res.json().catch(() => ({})))
     if (!env.success || !env.data.success) {
-      if (res.status === 401 || res.status === 403) throw new Error('Cloudflare hat den Token abgelehnt. Er braucht die Berechtigung „Zone, DNS, Bearbeiten“.')
+      if (res.status === 401 || res.status === 403) throw new Error('Cloudflare hat den Token abgelehnt. Er braucht die Berechtigungen „Zone: DNS: Bearbeiten“, „Konto: Cloudflare Tunnel: Bearbeiten“ und „Konto: Kontoeinstellungen: Lesen“.')
       throw new Error(env.success ? (env.data.errors[0]?.message ?? `Cloudflare-Fehler (${res.status})`) : `Cloudflare-Fehler (${res.status})`)
     }
     return schema.parse(env.data.result)
@@ -37,6 +37,57 @@ export class Cloudflare {
     const z0 = zones.find((z1) => z1.name === domain.toLowerCase())
     if (!z0) throw new Error(`Die Domain ${domain} gehört nicht zu diesem Cloudflare-Konto.`)
     return z0.id
+  }
+
+  /** Zone samt Konto-ID (für Tunnel-Aufrufe). */
+  async zone(domain: string): Promise<{ id: string; account: string }> {
+    if (!validDomain(domain)) throw new Error('Ungültige Domain.')
+    const zones = await this.req('GET', `/zones?name=${encodeURIComponent(domain.toLowerCase())}`, z.array(z.object({ id: z.string(), name: z.string(), account: z.object({ id: z.string() }) })))
+    const z0 = zones.find((z1) => z1.name === domain.toLowerCase())
+    if (!z0) throw new Error(`Die Domain ${domain} gehört nicht zu diesem Cloudflare-Konto.`)
+    if (!z0.account) throw new Error('Cloudflare hat die Konto-ID der Domain nicht geliefert. Prüfe die Token-Rechte (Konto: Lesen).')
+    return { id: z0.id, account: z0.account.id }
+  }
+
+  // ---------- Cloudflare Tunnel ----------
+  async findTunnel(account: string, name: string): Promise<string | undefined> {
+    const list = await this.req('GET', `/accounts/${account}/cfd_tunnel?name=${encodeURIComponent(name)}&is_deleted=false`, z.array(z.object({ id: z.string(), name: z.string() })))
+    return list.find((t) => t.name === name)?.id
+  }
+
+  async createTunnel(account: string, name: string): Promise<string> {
+    const t = await this.req('POST', `/accounts/${account}/cfd_tunnel`, z.object({ id: z.string() }), { name, config_src: 'cloudflare' })
+    return t.id
+  }
+
+  /** Token, mit dem `cloudflared` den Tunnel startet. */
+  async tunnelToken(account: string, tunnel: string): Promise<string> {
+    return this.req('GET', `/accounts/${account}/cfd_tunnel/${tunnel}/token`, z.string())
+  }
+
+  /** Leitet `host` durch den Tunnel an den lokalen Dienst weiter, alles andere liefert 404. */
+  async configureTunnel(account: string, tunnel: string, host: string, localPort: number): Promise<void> {
+    await this.req('PUT', `/accounts/${account}/cfd_tunnel/${tunnel}/configurations`, z.unknown(), {
+      config: { ingress: [{ hostname: host, service: `http://127.0.0.1:${localPort}`, originRequest: {} }, { service: 'http_status:404' }] },
+    })
+  }
+
+  /** CNAME auf den Tunnel (über Cloudflares Proxy, sonst funktioniert der Tunnel nicht). */
+  async upsertCname(zone: string, host: string, tunnel: string): Promise<void> {
+    const body = { type: 'CNAME', name: host, content: `${tunnel}.cfargotunnel.com`, ttl: 1, proxied: true, comment: 'TRM-Craft' }
+    const ex = await this.find(zone, 'CNAME', host)
+    if (ex) await this.req('PUT', `/zones/${zone}/dns_records/${ex.id}`, Record, body)
+    else await this.req('POST', `/zones/${zone}/dns_records`, Record, body)
+  }
+
+  async removeCname(zone: string, host: string): Promise<void> {
+    const ex = await this.find(zone, 'CNAME', host)
+    if (ex) await this.req('DELETE', `/zones/${zone}/dns_records/${ex.id}`, z.object({ id: z.string() }))
+  }
+
+  async deleteTunnel(account: string, tunnel: string): Promise<void> {
+    await this.req('DELETE', `/accounts/${account}/cfd_tunnel/${tunnel}/connections`, z.unknown()).catch(() => {})
+    await this.req('DELETE', `/accounts/${account}/cfd_tunnel/${tunnel}`, z.unknown())
   }
 
   private async find(zone: string, type: string, name: string) {

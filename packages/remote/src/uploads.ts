@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto'
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs'
 import { basename, extname, join } from 'node:path'
-import { downloadFile, allowHost } from '@trm/servers'
 import type { UploadRecord } from '@trm/core'
 import { classifyError, UPLOAD_EXTENSIONS } from './protocol'
 import { placeUpload, undoUpload, type PlaceHost, type Undo } from './place'
@@ -16,13 +15,9 @@ export interface UploadDeps {
   limitBytes: () => number
   canUpload: () => boolean
   server: (id: string) => UploadServer | null
-  /** Host der konfigurierten Webseite. Nur von dort darf die App Dateien selbst abholen. */
-  siteHost: () => string | null
   send: (msg: Record<string, unknown>) => void
   emit: (r: UploadRecord) => void
   restore: (serverId: string, file: string) => Promise<void>
-  download?: typeof downloadFile
-  fetchImpl?: typeof fetch
   now?: () => number
 }
 
@@ -96,12 +91,12 @@ export class UploadManager {
     this.d.send({ type: 'upload.ready', uploadId: s.id, received: resumed })
   }
 
-  chunk(m: { uploadId: string; offset: number; data: string }): void {
+  chunk(m: { uploadId: string; offset: number; data: string | Buffer }): void {
     const s = this.states.get(m.uploadId)
     if (!s) return this.d.send({ type: 'upload.failed', uploadId: m.uploadId, error: 'Unbekannter Upload.', code: 'not_found' })
     // Bei Versatz: aktuellen Stand melden, die Webseite sendet ab dort erneut.
     if (m.offset !== s.received) return this.d.send({ type: 'upload.ack', uploadId: s.id, received: s.received })
-    const buf = Buffer.from(m.data, 'base64')
+    const buf = typeof m.data === 'string' ? Buffer.from(m.data, 'base64') : m.data
     if (!buf.length || s.received + buf.length > s.size) return this.fail(s, 'Ungültige Datenmenge.')
     const fd = openSync(s.part, 'r+')
     try { writeSync(fd, buf, 0, buf.length, s.received) } finally { closeSync(fd) }
@@ -123,31 +118,11 @@ export class UploadManager {
     if (s) this.fail(s, 'Abgebrochen.')
   }
 
-  /** Alternative für große Dateien: Die App lädt die Datei selbst von der Webseite (nur von deren Host). */
-  async fetch(m: { uploadId: string; serverId: string; fileName: string; size: number; sha256: string; url: string; restartAfter?: boolean; uploader?: string }): Promise<void> {
-    this.begin({ ...m })
-    const s = this.states.get(m.uploadId)
-    if (!s) return
-    try {
-      const u = new URL(m.url)
-      const site = this.d.siteHost()
-      if (u.protocol !== 'https:' || !site || u.hostname !== site) throw new Error('Downloads sind nur von der verbundenen Webseite erlaubt.')
-      allowHost(u.host)
-      rmSync(s.part, { force: true })
-      await (this.d.download ?? downloadFile)({ url: m.url, dest: s.part, sha256: s.sha256, fetchImpl: this.d.fetchImpl })
-      if (statSync(s.part).size !== s.size) throw new Error('Die Dateigröße stimmt nicht.')
-      s.received = s.size
-    } catch (e) {
-      return this.fail(s, (e as Error).message)
-    }
-    await this.finish(s, true)
-  }
-
-  private async finish(s: State, verified = false): Promise<void> {
+  private async finish(s: State): Promise<void> {
     const srv = this.d.server(s.serverId)
     if (!srv) return this.fail(s, 'Server nicht gefunden.')
     try {
-      if (!verified && (await sha256File(s.part)) !== s.sha256) throw new Error('Die Prüfsumme stimmt nicht überein. Die Datei wurde nicht installiert.')
+      if ((await sha256File(s.part)) !== s.sha256) throw new Error('Die Prüfsumme stimmt nicht überein. Die Datei wurde nicht installiert.')
       const placed = await placeUpload(srv, s.part, s.fileName)
       rmSync(s.part, { force: true })
       rmSync(`${s.part}.json`, { force: true })

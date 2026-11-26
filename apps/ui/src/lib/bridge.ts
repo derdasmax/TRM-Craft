@@ -38,9 +38,10 @@ function browserBridge(): TrmBridge {
         case 'net.join': return {}
         case 'net.domain.get': return null
         case 'net.tunnel.state': return { status: 'stopped', lines: [] }
-        case 'remote.status': return { enabled: false, paired: false, connected: false, url: '', sessions: [], canUpload: false }
+        case 'remote.status': return { enabled: false, listening: false, mode: 'tunnel', port: 47821, tunnel: { phase: 'none', serviceInstalled: false, lines: [] }, devices: 0, sessions: [] }
         case 'remote.uploads': return []
-        case 'remote.pairStart': return { enabled: false, paired: false, connected: false, url: '', sessions: [], canUpload: false }
+        case 'remote.devices': return []
+        case 'remote.pairStart': return { enabled: false, listening: false, mode: 'tunnel', port: 47821, tunnel: { phase: 'none', serviceInstalled: false, lines: [] }, devices: 0, sessions: [] }
         case 'servers.softwareStatus': return { supported: false, available: false }
         case 'updater.getState': return { phase: 'uptodate', currentVersion: '0.0.0-dev' }
         case 'window.toggleMaximize': case 'window.isMaximized': return false

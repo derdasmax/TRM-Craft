@@ -1,6 +1,6 @@
 import type { DeepPartial, Settings } from './settings'
 import type { UpdaterState } from './updater'
-import type { RemoteStatus, UploadRecord } from './remote'
+import type { DeviceInfo, RemoteStatus, UploadRecord } from './remote'
 import type { CloudflareStatus, DomainConfig, FirewallStatus, JoinInfo, NetInfo, ReachResult, TunnelState, UpnpStatus } from './net'
 import type { BackupInfo, FileContent, FileEntry, PlayerAction, PlayerEntry, ScheduleTask, StatsSample, WorldInfo } from './ops'
 import type { InstalledMod, ModInstallResult, ModpackInstallArgs, ModSearchArgs, ModSearchResult, ModSource, ModUpdate } from './mods'
@@ -109,10 +109,16 @@ export interface CommandMap {
   'net.tunnel.start': { args: void; result: void }
   'net.tunnel.stop': { args: void; result: void }
   'remote.status': { args: void; result: RemoteStatus }
-  'remote.pair': { args: string; result: RemoteStatus }
-  'remote.pairStart': { args: void; result: RemoteStatus }
+  'remote.pairStart': { args: { upload: boolean }; result: RemoteStatus }
   'remote.pairCancel': { args: void; result: void }
-  'remote.unpair': { args: void; result: void }
+  'remote.claim': { args: { siteUrl: string; code: string; upload: boolean }; result: void }
+  'remote.devices': { args: void; result: DeviceInfo[] }
+  'remote.revoke': { args: string; result: void }
+  'remote.tunnel.setup': { args: { domain: string; sub: string }; result: RemoteStatus }
+  'remote.tunnel.start': { args: void; result: void }
+  'remote.tunnel.stop': { args: void; result: void }
+  'remote.tunnel.service': { args: { install: boolean }; result: void }
+  'remote.tunnel.remove': { args: void; result: void }
   'remote.uploads': { args: void; result: UploadRecord[] }
   'remote.undo': { args: string; result: void }
   'secrets.set': { args: { name: SecretName; value: string }; result: void }
@@ -220,10 +226,16 @@ export const commandRoles: Record<CommandName, Role> = {
   'net.tunnel.start': 'owner',
   'net.tunnel.stop': 'owner',
   'remote.status': 'owner',
-  'remote.pair': 'owner',
   'remote.pairStart': 'owner',
   'remote.pairCancel': 'owner',
-  'remote.unpair': 'owner',
+  'remote.claim': 'owner',
+  'remote.devices': 'owner',
+  'remote.revoke': 'owner',
+  'remote.tunnel.setup': 'owner',
+  'remote.tunnel.start': 'owner',
+  'remote.tunnel.stop': 'owner',
+  'remote.tunnel.service': 'owner',
+  'remote.tunnel.remove': 'owner',
   'remote.uploads': 'owner',
   'remote.undo': 'owner',
   'secrets.set': 'owner',
