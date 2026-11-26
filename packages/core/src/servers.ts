@@ -68,6 +68,8 @@ export const ServerRecordSchema = z.object({
   crossplay: z.boolean().default(false),
   /** UDP-Port für Bedrock-Spieler bei Crossplay. */
   bedrockPort: z.number().int().min(1024).max(65535).optional(),
+  backup: z.object({ dir: z.string().optional(), keep: z.number().int().min(1).max(200).default(10) }).default({}),
+  notify: z.object({ desktop: z.boolean().default(true), discord: z.boolean().default(false), joins: z.boolean().default(false) }).default({}),
   autoRestart: z.boolean().default(true),
   /** Wird nach App-Start (und nach einem Update) automatisch gestartet. */
   autostart: z.boolean().default(false),

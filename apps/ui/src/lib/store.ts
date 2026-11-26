@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { defaultSettings, mergeSettings, type AppInfo, type DeepPartial, type ProgressEvent, type ServerView, type Settings, type UpdaterState } from '@trm/core'
+import { defaultSettings, mergeSettings, type AppInfo, type DeepPartial, type ProgressEvent, type ServerView, type Settings, type StatsSample, type UpdaterState } from '@trm/core'
 import { invoke, onEvent } from './bridge'
 
 const LOG_CAP = 1500
@@ -15,6 +15,7 @@ interface State {
   servers: Record<string, ServerView>
   logs: Record<string, string[]>
   progress: Record<string, ProgressEvent>
+  stats: Record<string, StatsSample[]>
   page: Page
   selected: string | null
   wizardOpen: boolean
@@ -37,6 +38,7 @@ export const useStore = create<State>((set, get) => ({
   servers: {},
   logs: {},
   progress: {},
+  stats: {},
   page: 'dashboard',
   selected: null,
   wizardOpen: false,
@@ -72,6 +74,7 @@ export const useStore = create<State>((set, get) => ({
         return { logs: { ...s.logs, [id]: next } }
       }),
     )
+    onEvent('servers.stats', ({ id, sample }) => set((s) => ({ stats: { ...s.stats, [id]: [...(s.stats[id] ?? []).slice(-359), sample] } })))
     onEvent('servers.progress', (p) => set((s) => ({ progress: { ...s.progress, [p.token]: p } })))
   },
 }))
@@ -80,4 +83,9 @@ export const useStore = create<State>((set, get) => ({
 export async function loadLogs(id: string) {
   const lines = await invoke('servers.logs', id)
   useStore.setState((s) => ({ logs: { ...s.logs, [id]: lines } }))
+}
+
+export async function loadStats(id: string) {
+  const h = await invoke('stats.history', id)
+  useStore.setState((s) => ({ stats: { ...s.stats, [id]: h } }))
 }

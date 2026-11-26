@@ -21,6 +21,6 @@ export function safeJoin(root: string, ...parts: string[]): string {
 /** Relative Pfade aus Modpacks: keine absoluten Pfade, kein "..", keine Laufwerksbuchstaben. */
 export function safeRelativePath(p: string): string {
   const norm = p.replace(/\\/g, '/')
-  if (!norm || norm.startsWith('/') || /^[a-zA-Z]:/.test(norm) || norm.split('/').some((s) => s === '..' || s === '')) throw new Error(`Unzulässiger Pfad im Modpack: ${p}`)
+  if (!norm || norm.startsWith('/') || /^[a-zA-Z]:/.test(norm) || norm.split('/').some((s) => s === '..' || s === '')) throw new Error(`Unzulässiger Pfad: ${p}`)
   return norm
 }

@@ -1,5 +1,5 @@
-import { app, BrowserWindow, ipcMain, Notification, safeStorage, session, shell } from 'electron'
-import { IPC_CHANNEL, IPC_EVENT_CHANNEL, onHealthy, onStart, type CommandName } from '@trm/core'
+import { app, BrowserWindow, dialog, ipcMain, Notification, safeStorage, session, shell } from 'electron'
+import { IPC_CHANNEL, IPC_EVENT_CHANNEL, onHealthy, onStart, type CommandName, type ServerView } from '@trm/core'
 import { dataDir, settingsFile } from './paths'
 import { SettingsStore } from './settings-store'
 import { UpdaterService } from './updater'
@@ -7,7 +7,8 @@ import { loadGuard, saveGuard } from './guard-store'
 import { rollbackTo } from './rollback'
 import { createTray } from './tray'
 import { registerShutdownHook, stopAll } from './lifecycle'
-import { installModpack, ModManager, ServerManager } from '@trm/servers'
+import { installModpack, isDiscordWebhook, ModManager, Scheduler, ServerManager } from '@trm/servers'
+import { Notifier } from './notifier'
 import { join } from 'node:path'
 import { SecretStore } from './secrets'
 
@@ -18,6 +19,8 @@ let settings: SettingsStore
 let updater: UpdaterService
 let servers: ServerManager
 let mods: ModManager
+let scheduler: Scheduler
+let notifier: Notifier
 let secrets: SecretStore
 let quitting = false
 const HEALTHY_AFTER_MS = 20_000
@@ -72,7 +75,12 @@ const handlers: Record<CommandName, (args: any) => unknown> = {
   'servers.stop': (id) => servers.stop(id),
   'servers.restart': (id) => servers.restart(id),
   'servers.kill': (id) => servers.kill(id),
-  'servers.delete': (id) => servers.remove(id),
+  'servers.delete': async (id) => {
+    await servers.remove(id)
+    scheduler.removeForServer(id)
+    notifier.forget(id)
+    secrets.delete(`discord:${id}`)
+  },
   'servers.command': ({ id, command }) => servers.command(id, command),
   'servers.logs': (id) => servers.logs(id),
   'servers.properties.get': (id) => servers.getProperties(id),
@@ -91,7 +99,44 @@ const handlers: Record<CommandName, (args: any) => unknown> = {
       args,
       { curseKey: () => secrets.get('curseforge'), progress: (label, percent) => emit('servers.progress', { token: args.token, label, percent }) },
     ),
-  'secrets.set': ({ name, value }) => secrets.set(name, value),
+  'players.list': (id) => servers.playersList(id),
+  'players.action': ({ id, action, name, arg }) => servers.playerAction(id, action, name, arg),
+  'files.list': ({ id, path }) => servers.files(id).list(path),
+  'files.read': ({ id, path }) => servers.files(id).read(path),
+  'files.write': ({ id, path, content }) => servers.files(id).write(path, content),
+  'files.mkdir': ({ id, path }) => servers.files(id).mkdir(path),
+  'files.delete': ({ id, path }) => servers.files(id).delete(path),
+  'files.rename': ({ id, from, to }) => servers.files(id).rename(from, to),
+  'files.unzip': ({ id, path }) => servers.files(id).unzip(path),
+  'files.upload': ({ id, dir, paths }) => servers.files(id).upload(dir, paths),
+  'servers.setIcon': ({ id, png }) => servers.setIcon(id, png),
+  'servers.getIcon': (id) => servers.getIcon(id),
+  'worlds.list': (id) => servers.worldsList(id),
+  'worlds.setActive': ({ id, name }) => servers.setActiveWorld(id, name),
+  'worlds.export': ({ id, name, dest }) => servers.exportWorld(id, name, dest),
+  'worlds.import': ({ id, zipPath }) => servers.importWorld(id, zipPath),
+  'worlds.reset': ({ id, name }) => servers.resetWorld(id, name),
+  'backups.list': (id) => servers.backupsList(id),
+  'backups.create': ({ id, label }) => servers.backupCreate(id, label),
+  'backups.restore': ({ id, file }) => servers.backupRestore(id, file),
+  'backups.delete': ({ id, file }) => servers.backupDelete(id, file),
+  'schedules.list': () => scheduler.list(),
+  'schedules.save': (t) => {
+    servers.recordOf(t.serverId) // Server muss existieren
+    return scheduler.upsert(t)
+  },
+  'schedules.delete': (id) => scheduler.remove(id),
+  'stats.history': (id) => servers.statsHistory(id),
+  'spark.profiler': ({ id, action }) => servers.command(id, `spark profiler ${action === 'start' ? 'start' : 'stop'}`),
+  'notify.discordTest': (id) => notifier.test(servers.view(id)),
+  'dialog.open': async ({ filters }) => (await dialog.showOpenDialog(win!, { properties: ['openFile'], filters })).filePaths[0] ?? null,
+  'dialog.save': async ({ defaultName }) => (await dialog.showSaveDialog(win!, { defaultPath: defaultName, filters: [{ name: 'ZIP', extensions: ['zip'] }] })).filePath ?? null,
+  'dialog.folder': async () => (await dialog.showOpenDialog(win!, { properties: ['openDirectory', 'createDirectory'] })).filePaths[0] ?? null,
+  'secrets.set': ({ name, value }) => {
+    if (!/^(curseforge|cloudflare|discord:[a-z0-9][a-z0-9-]{0,39})$/.test(name)) throw new Error('Unbekanntes Geheimnis.')
+    if (name.startsWith('discord:') && !isDiscordWebhook(value.trim())) throw new Error('Das ist keine gültige Discord-Webhook-URL.')
+    secrets.set(name, value)
+  },
   'secrets.has': (name) => secrets.has(name),
   'secrets.delete': (name) => secrets.delete(name),
   'shell.openExternal': (url: string) => {
@@ -213,7 +258,33 @@ async function runCrashGuard(): Promise<string | undefined> {
 app.whenReady().then(async () => {
   settings = new SettingsStore(settingsFile())
   const rolledBackFrom = await runCrashGuard()
-  servers = new ServerManager({ dataDir: dataDir(), emit: (e, p) => emit(e, p) })
+  notifier = new Notifier({
+    desktopEnabled: () => settings.get().notifications.desktop,
+    webhook: (id) => secrets.get(`discord:${id}`),
+    log: (id, line) => emit('servers.log', { id, line }),
+  })
+  servers = new ServerManager({
+    dataDir: dataDir(),
+    emit: (e, p) => {
+      emit(e, p)
+      if (e === 'servers.status') notifier.onStatus(p as ServerView)
+    },
+    onLowTps: (id, tps) => {
+      const s = servers.view(id)
+      if (s.notify.desktop && settings.get().notifications.desktop) new Notification({ title: 'TRM-Craft', body: `${s.name}: Die TPS sind niedrig (${tps}).` }).show()
+    },
+  })
+  scheduler = new Scheduler(
+    join(dataDir(), 'schedules.json'),
+    {
+      restart: (id, warn) => servers.restartWithWarning(id, warn),
+      backup: async (id) => void (await servers.backupCreate(id, 'geplant')),
+      command: (id, c) => { if (servers.statusOf(id) === 'running') servers.command(id, c) },
+      announce: (id, m) => { if (servers.statusOf(id) === 'running') servers.command(id, `say ${m.replace(/[\r\n]/g, ' ')}`) },
+    },
+    Date.now,
+    (task, e) => emit('servers.log', { id: task.serverId, line: `[TRM-Craft] Geplante Aufgabe „${task.name}“ fehlgeschlagen: ${(e as Error).message}` }),
+  )
   secrets = new SecretStore(join(dataDir(), 'secrets.json'), {
     isAvailable: () => safeStorage.isEncryptionAvailable(),
     encrypt: (p) => safeStorage.encryptString(p),
@@ -232,12 +303,16 @@ app.whenReady().then(async () => {
     new Notification({ title: 'TRM-Craft', body: `Version ${rolledBackFrom} ist abgestürzt. Die vorherige Version wurde wiederhergestellt.` }).show()
   setTimeout(() => void updater.check(), 8_000)
   void servers.resume()
+  servers.startMonitoring()
+  scheduler.start()
 })
 
 app.on('before-quit', (e) => {
   if (quitting) return
   quitting = true
   e.preventDefault()
+  scheduler?.stop()
+  servers?.stopMonitoring()
   // Server sauber stoppen, dann endgültig beenden.
   stopAll().finally(() => app.quit())
 })

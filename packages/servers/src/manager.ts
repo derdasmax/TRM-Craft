@@ -2,10 +2,10 @@ import extract from 'extract-zip'
 import { randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
-import { join, resolve, sep } from 'node:path'
+import { isAbsolute, join, resolve, sep } from 'node:path'
 import {
   CreateServerInputSchema, LOADER_INFO, SERVER_ID, ServerRecordSchema,
-  type AppEvents, type CreateServerInput, type CrashReport, type ServerRecord, type ServerStatus, type ServerView, type SystemMemory, type VersionInfo, type Loader,
+  type AppEvents, type BackupInfo, type PlayerAction, type PlayerEntry, type StatsSample, type WorldInfo, type CreateServerInput, type CrashReport, type ServerRecord, type ServerStatus, type ServerView, type SystemMemory, type VersionInfo, type Loader,
 } from '@trm/core'
 import { analyzeCrash } from './crash'
 import { downloadFile, type FetchLike } from './download'
@@ -14,10 +14,15 @@ import { jvmArgs } from './jvm'
 import { findFreePort, isPortFree, isUdpPortFree } from './ports'
 import { runInstaller, type InstallerRunner } from './installer'
 import { installCrossplay, LOADER_DEFS } from './loaders'
+import { BackupService, type SaveHost } from './backups'
+import { ServerFiles } from './files'
+import { PlayerTracker, playerCommand } from './players'
+import { cpuPercent, defaultStatReader, LowTpsDetector, parseTps, StatsStore, type ProcStat, type StatReader } from './stats'
+import { exportWorld, importWorldZip, listWorlds, resetWorld, WORLD_NAME } from './worlds'
 import { parseProperties, updateProperties } from './properties'
 import { ServerProcess, type LaunchSpec } from './process'
 
-export type EmitFn = <K extends 'servers.status' | 'servers.removed' | 'servers.log' | 'servers.progress'>(event: K, payload: AppEvents[K]) => void
+export type EmitFn = <K extends 'servers.status' | 'servers.removed' | 'servers.log' | 'servers.progress' | 'servers.stats'>(event: K, payload: AppEvents[K]) => void
 
 export interface ManagerDeps {
   dataDir: string
@@ -33,6 +38,9 @@ export interface ManagerDeps {
   loaderDefs?: typeof LOADER_DEFS
   portCheck?: (p: number, udp?: boolean) => Promise<boolean>
   restartDelayMs?: (attempt: number) => number
+  statReader?: StatReader
+  /** Wird bei anhaltend niedrigen TPS aufgerufen. */
+  onLowTps?: (id: string, tps: number) => void
 }
 
 interface Runtime {
@@ -42,6 +50,9 @@ interface Runtime {
   restartWindowStart: number
   lastCrash?: CrashReport
   restartTimer?: NodeJS.Timeout
+  known: Set<string>
+  lastTps?: number
+  tpsPending?: NodeJS.Timeout
 }
 
 const LOG_LIMIT = 2000
@@ -58,6 +69,13 @@ export class ServerManager {
   private readonly runtimesDir: string
   private readonly file: string
   private shuttingDown = false
+  private trackers = new Map<string, PlayerTracker>()
+  private readonly stats = new StatsStore()
+  private readonly lowTps = new LowTpsDetector()
+  private prevStat = new Map<string, { t: number; s: ProcStat }>()
+  private monitor: NodeJS.Timeout | null = null
+  private monitorTicks = 0
+  private readonly backups = new BackupService()
 
   constructor(private readonly d: ManagerDeps) {
     this.serversDir = join(d.dataDir, 'servers')
@@ -113,7 +131,7 @@ export class ServerManager {
   private rt(id: string): Runtime {
     let r = this.runtimes.get(id)
     if (!r) {
-      r = { proc: new ServerProcess(), logs: [], restarts: 0, restartWindowStart: Date.now() }
+      r = { proc: new ServerProcess(), logs: [], restarts: 0, restartWindowStart: Date.now(), known: new Set() }
       this.runtimes.set(id, r)
       this.wire(id, r)
     }
@@ -210,7 +228,7 @@ export class ServerManager {
         writeFileSync(join(dir, 'server.properties'), updateProperties('', props))
         if (input.worldZip) {
           progress('Welt wird importiert …', null)
-          await this.importWorld(input.worldZip, dir)
+          await importWorldZip(input.worldZip, dir, 'world', true)
         }
         if (input.crossplay && info.crossplay) {
           bedrockPort = await findFreePort(19132, new Set([...this.usedPorts(), port]), (p) => this.portFree(p, true))
@@ -233,30 +251,28 @@ export class ServerManager {
     }
   }
 
-  /** Entpackt eine Welt-ZIP und verschiebt den Ordner mit level.dat nach `world/`. */
-  private async importWorld(zipPath: string, serverDir: string) {
-    const tmp = join(serverDir, '.world-import')
-    rmSync(tmp, { recursive: true, force: true })
-    await extract(zipPath, { dir: tmp }) // extract-zip verhindert Zip-Slip
-    const find = (d: string, depth: number): string | null => {
-      if (existsSync(join(d, 'level.dat'))) return d
-      if (depth === 0) return null
-      for (const e of readdirSync(d, { withFileTypes: true })) if (e.isDirectory()) { const r = find(join(d, e.name), depth - 1); if (r) return r }
-      return null
-    }
-    const src = find(tmp, 2)
-    if (!src) throw new Error('Die ZIP enthält keine Minecraft-Welt (level.dat fehlt).')
-    rmSync(join(serverDir, 'world'), { recursive: true, force: true })
-    renameSync(src, join(serverDir, 'world'))
-    rmSync(tmp, { recursive: true, force: true })
-  }
-
   // ---------- Steuerung ----------
   private wire(id: string, rt: Runtime) {
     const p = rt.proc
     p.on('status', () => this.push(id))
-    p.on('players', () => this.push(id))
+    p.on('players', (list) => {
+      const tr = this.tracker(id)
+      const now = new Set(list)
+      for (const n of now) if (!rt.known.has(n)) tr.join(n)
+      for (const n of rt.known) if (!now.has(n)) tr.leave(n)
+      rt.known = now
+      this.push(id)
+    })
     p.on('line', (line) => {
+      if (rt.tpsPending) {
+        const v = parseTps(line)
+        if (v !== null) {
+          rt.lastTps = v
+          clearTimeout(rt.tpsPending)
+          rt.tpsPending = undefined
+          return // die TPS-Abfrage soll die Konsole nicht zumüllen
+        }
+      }
       rt.logs.push(line)
       if (rt.logs.length > LOG_LIMIT) rt.logs.splice(0, rt.logs.length - LOG_LIMIT)
       this.d.emit('servers.log', { id, line })
@@ -341,7 +357,7 @@ export class ServerManager {
     return [...(this.runtimes.get(id)?.logs ?? [])]
   }
 
-  update(id: string, patch: Partial<Pick<ServerRecord, 'name' | 'ramMb' | 'jvmPreset' | 'autoRestart' | 'autostart' | 'port'>>): ServerRecord {
+  update(id: string, patch: Partial<Pick<ServerRecord, 'name' | 'ramMb' | 'jvmPreset' | 'autoRestart' | 'autostart' | 'port' | 'backup' | 'notify'>>): ServerRecord {
     const r = this.rec(id)
     if (patch.port !== undefined && patch.port !== r.port) {
       const clash = this.records.find((x) => x.id !== id && x.port === patch.port)
@@ -362,6 +378,8 @@ export class ServerManager {
     if (st && st !== 'stopped' && st !== 'crashed') throw new Error('Stoppe den Server, bevor du ihn löschst.')
     const dir = this.serverDir(id)
     this.runtimes.delete(id)
+    this.trackers.delete(id)
+    this.stats.clear(id)
     this.records = this.records.filter((x) => x !== r)
     this.save()
     rmSync(dir, { recursive: true, force: true })
@@ -378,6 +396,164 @@ export class ServerManager {
     this.rec(id)
     const f = join(this.serverDir(id), 'server.properties')
     writeFileSync(f, updateProperties(existsSync(f) ? readFileSync(f, 'utf8') : '', values))
+  }
+
+  // ---------- Icon ----------
+  /** Speichert ein 64x64-PNG als server-icon.png. Die UI skaliert vorher; hier wird Format und Größe geprüft. */
+  setIcon(id: string, pngBase64: string): void {
+    const r = this.rec(id)
+    if (LOADER_INFO[r.loader].proxy || r.edition === 'bedrock') throw new Error('Dieser Server-Typ unterstützt kein Icon.')
+    const buf = Buffer.from(pngBase64, 'base64')
+    if (buf.length > 100_000 || buf.length < 24 || buf.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a') throw new Error('Das Icon muss ein PNG sein.')
+    if (buf.readUInt32BE(16) !== 64 || buf.readUInt32BE(20) !== 64) throw new Error('Das Icon muss 64 x 64 Pixel groß sein.')
+    writeFileSync(join(this.serverDir(id), 'server-icon.png'), buf)
+  }
+
+  getIcon(id: string): string | null {
+    this.rec(id)
+    const f = join(this.serverDir(id), 'server-icon.png')
+    return existsSync(f) ? `data:image/png;base64,${readFileSync(f).toString('base64')}` : null
+  }
+
+  // ---------- Spieler ----------
+  private tracker(id: string): PlayerTracker {
+    let t = this.trackers.get(id)
+    if (!t) { t = new PlayerTracker(join(this.serverDir(id), '.trm', 'players.json')); this.trackers.set(id, t) }
+    return t
+  }
+
+  playersList(id: string): PlayerEntry[] {
+    this.rec(id)
+    return this.tracker(id).list()
+  }
+
+  playerAction(id: string, action: PlayerAction, name: string, arg?: string): void {
+    const r = this.rec(id)
+    if (LOADER_INFO[r.loader].proxy) throw new Error('Auf Proxys sind Spieleraktionen nicht verfügbar.')
+    this.command(id, playerCommand(r.edition, action, name, arg))
+  }
+
+  // ---------- Dateien ----------
+  files(id: string): ServerFiles {
+    this.rec(id)
+    return new ServerFiles(this.serverDir(id))
+  }
+
+  // ---------- Backups ----------
+  backupDir(id: string): string {
+    const r = this.rec(id)
+    if (r.backup.dir) {
+      if (!isAbsolute(r.backup.dir)) throw new Error('Der Backup-Ordner muss ein absoluter Pfad sein.')
+      return join(r.backup.dir, 'TRM-Craft', id)
+    }
+    return join(this.d.dataDir, 'backups', id)
+  }
+
+  private saveHost(id: string): SaveHost {
+    const r = this.rec(id)
+    return {
+      dir: this.serverDir(id),
+      edition: r.edition,
+      status: () => this.statusOf(id),
+      command: (c) => this.command(id, c),
+      onLine: (fn) => { const p = this.rt(id).proc; p.on('line', fn); return () => void p.off('line', fn) },
+    }
+  }
+
+  backupsList(id: string): BackupInfo[] { return this.backups.list(this.backupDir(id)) }
+  backupCreate(id: string, label?: string): Promise<BackupInfo> { return this.backups.create(this.saveHost(id), this.backupDir(id), this.rec(id).backup.keep, label) }
+  backupRestore(id: string, file: string): Promise<void> { return this.backups.restore(this.saveHost(id), this.backupDir(id), this.rec(id).backup.keep, file) }
+  backupDelete(id: string, file: string): void { this.backups.delete(this.backupDir(id), file) }
+
+  // ---------- Welten ----------
+  worldsList(id: string): Promise<WorldInfo[]> {
+    if (this.rec(id).edition === 'bedrock') throw new Error('Weltverwaltung ist für Bedrock noch nicht verfügbar.')
+    return listWorlds(this.serverDir(id))
+  }
+
+  private requireStopped(id: string) {
+    const st = this.statusOf(id)
+    if (st !== 'stopped' && st !== 'crashed') throw new Error('Stoppe den Server zuerst.')
+  }
+
+  async setActiveWorld(id: string, name: string): Promise<void> {
+    this.requireStopped(id)
+    if (!WORLD_NAME.test(name) || !(await listWorlds(this.serverDir(id))).some((w) => w.name === name)) throw new Error('Welt nicht gefunden.')
+    this.setProperties(id, { 'level-name': name })
+  }
+
+  exportWorld(id: string, name: string, dest: string): Promise<void> {
+    const host = this.saveHost(id)
+    return import('./backups').then(({ withSaveLock }) => withSaveLock(host, () => exportWorld(this.serverDir(id), name, dest)))
+  }
+
+  importWorld(id: string, zipPath: string): Promise<string> {
+    this.requireStopped(id)
+    return importWorldZip(zipPath, this.serverDir(id), 'world')
+  }
+
+  async resetWorld(id: string, name: string): Promise<void> {
+    this.requireStopped(id)
+    // Vor dem Löschen immer sichern.
+    await this.backupCreate(id, `vor-reset-${name}`)
+    resetWorld(this.serverDir(id), name)
+  }
+
+  // ---------- Leistung ----------
+  statsHistory(id: string): StatsSample[] {
+    this.rec(id)
+    return this.stats.get(id)
+  }
+
+  /** Startet die regelmäßige Messung (CPU, RAM, TPS). Wird von der App einmal aufgerufen. */
+  startMonitoring(intervalMs = 5000): void {
+    if (this.monitor) return
+    this.monitor = setInterval(() => void this.sample(), intervalMs)
+  }
+
+  stopMonitoring(): void {
+    if (this.monitor) clearInterval(this.monitor)
+    this.monitor = null
+  }
+
+  async sample(now = Date.now()): Promise<void> {
+    const live = [...this.runtimes].filter(([, r]) => r.proc.status === 'running' && r.proc.pid)
+    if (!live.length) return
+    const stat = await (this.d.statReader ?? defaultStatReader)(live.map(([, r]) => r.proc.pid!))
+    this.monitorTicks++
+    for (const [id, rt] of live) {
+      const cur = stat.get(rt.proc.pid!)
+      if (!cur) continue
+      const prev = this.prevStat.get(id)
+      this.prevStat.set(id, { t: now, s: cur })
+      const sample: StatsSample = { t: now, cpu: prev ? cpuPercent(prev.s, cur, now - prev.t) : 0, ramMb: Math.round(cur.rssBytes / 1048576), players: rt.proc.players.size, tps: rt.lastTps }
+      this.stats.push(id, sample)
+      this.d.emit('servers.stats', { id, sample })
+      if (this.lowTps.feed(id, sample.tps)) {
+        this.d.emit('servers.log', { id, line: `[TRM-Craft] Warnung: Die TPS liegen seit längerem unter 15 (${sample.tps}).` })
+        this.d.onLowTps?.(id, sample.tps!)
+      }
+      // TPS alle 60 s abfragen (nur dort, wo der Befehl existiert).
+      const loader = this.rec(id).loader
+      if (this.monitorTicks % 12 === 0 && (loader === 'paper' || loader === 'purpur') && !rt.tpsPending) {
+        rt.tpsPending = setTimeout(() => (rt.tpsPending = undefined), 3000)
+        try { rt.proc.send('tps') } catch { clearTimeout(rt.tpsPending); rt.tpsPending = undefined }
+      }
+    }
+    for (const id of this.prevStat.keys()) if (!live.some(([i]) => i === id)) this.prevStat.delete(id)
+  }
+
+  // ---------- Neustart mit Vorwarnung ----------
+  async restartWithWarning(id: string, seconds: number, sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))): Promise<void> {
+    if (this.statusOf(id) === 'running' && seconds > 0) {
+      // Warnungen bei der vollen Zeit sowie bei 30 und 10 Sekunden.
+      const marks = [...new Set([seconds, 30, 10].filter((m) => m <= seconds))].sort((x, y) => y - x)
+      for (const [i, left] of marks.entries()) {
+        this.command(id, `say Der Server startet in ${left} Sekunden neu.`)
+        await sleep((left - (marks[i + 1] ?? 0)) * 1000)
+      }
+    }
+    await this.restart(id)
   }
 
   // ---------- Lebenszyklus der App ----------

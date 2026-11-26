@@ -3,7 +3,15 @@ import { ArrowLeft, Trash2, TriangleAlert } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import clsx from 'clsx'
 import { extensionKind, type ServerView } from '@trm/core'
+import { BackupsTab } from '../components/BackupsTab'
 import { Console } from '../components/Console'
+import { FilesTab } from '../components/FilesTab'
+import { PerfTab } from '../components/PerfTab'
+import { PlayersTab } from '../components/PlayersTab'
+import { SchedulesTab } from '../components/SchedulesTab'
+import { WorldsTab } from '../components/WorldsTab'
+import { IconRow, NotifySection, PropertiesForm } from '../components/ServerExtras'
+import { LOADER_INFO } from '@trm/core'
 import { ModsTab, supportsMods } from '../components/ModsTab'
 import { ServerActions } from '../components/ServerActions'
 import { StatusPill } from '../components/StatusPill'
@@ -44,6 +52,9 @@ function SettingsTab({ s }: { s: ServerView }) {
         <Row title={t('srv.autorestart')}><Switch label={t('srv.autorestart')} checked={s.autoRestart} onChange={(autoRestart) => act(() => invoke('servers.update', { id: s.id, patch: { autoRestart } }))} /></Row>
         <Row title={t('srv.autostart')}><Switch label={t('srv.autostart')} checked={s.autostart} onChange={(autostart) => act(() => invoke('servers.update', { id: s.id, patch: { autostart } }))} /></Row>
       </Section>
+      {LOADER_INFO[s.loader].edition === 'java' && !LOADER_INFO[s.loader].proxy && <Section title={t('ss.icon')}><IconRow s={s} /></Section>}
+      {!LOADER_INFO[s.loader].proxy && <PropertiesForm s={s} />}
+      <NotifySection s={s} />
       <div className="flex items-center justify-between">
         <Button variant="ghost" onClick={async () => {
           if (!window.confirm(t('srv.delete.confirm', { n: s.name }))) return
@@ -60,7 +71,7 @@ export function ServerPage() {
   const id = useStore((s) => s.selected)
   const s = useStore((x) => (id ? x.servers[id] : undefined))
   const setPage = useStore((x) => x.setPage)
-  const [tab, setTab] = useState<'console' | 'mods' | 'settings'>('console')
+  const [tab, setTab] = useState<'console' | 'players' | 'files' | 'worlds' | 'backups' | 'schedules' | 'perf' | 'mods' | 'settings'>('console')
   useEffect(() => { if (!s) setPage('dashboard') }, [s, setPage])
   if (!s) return null
   return (
@@ -79,8 +90,27 @@ export function ServerPage() {
           <div><div className="font-semibold text-danger">{t('srv.crash')}</div><div className="mt-0.5">{s.lastCrash.message}</div>{s.lastCrash.hint && <div className="mt-0.5 text-muted">{s.lastCrash.hint}</div>}</div>
         </motion.div>
       )}
-      <div className="mb-4"><Segmented id="srvtab" value={tab} onChange={setTab} options={[{ value: 'console' as const, label: t('srv.tab.console') }, ...(supportsMods(s) ? [{ value: 'mods' as const, label: t(extensionKind(s.loader) === 'plugin' ? 'mods.tab.plugin' : 'mods.tab.mod') }] : []), { value: 'settings' as const, label: t('srv.tab.settings') }]} /></div>
-      <div className="min-h-0 flex-1 overflow-y-auto">{tab === 'console' ? <Console server={s} /> : tab === 'mods' ? <ModsTab key={s.id} server={s} /> : <SettingsTab key={s.id} s={s} />}</div>
+      <div className="mb-4 max-w-full overflow-x-auto pb-1">
+        <Segmented id="srvtab" value={tab} onChange={setTab} options={[
+          { value: 'console' as const, label: t('srv.tab.console') },
+          ...(!LOADER_INFO[s.loader].proxy ? [{ value: 'players' as const, label: t('tab.players') }] : []),
+          { value: 'files' as const, label: t('tab.files') },
+          ...(!LOADER_INFO[s.loader].proxy ? [{ value: 'worlds' as const, label: t('tab.worlds') }] : []),
+          { value: 'backups' as const, label: t('tab.backups') },
+          { value: 'schedules' as const, label: t('tab.schedules') },
+          { value: 'perf' as const, label: t('tab.perf') },
+          ...(supportsMods(s) ? [{ value: 'mods' as const, label: t(extensionKind(s.loader) === 'plugin' ? 'mods.tab.plugin' : 'mods.tab.mod') }] : []),
+          { value: 'settings' as const, label: t('srv.tab.settings') },
+        ]} />
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto">{tab === 'console' ? <Console server={s} />
+          : tab === 'players' ? <PlayersTab key={s.id} server={s} />
+          : tab === 'files' ? <FilesTab key={s.id} server={s} />
+          : tab === 'worlds' ? <WorldsTab key={s.id} server={s} />
+          : tab === 'backups' ? <BackupsTab key={s.id} server={s} />
+          : tab === 'schedules' ? <SchedulesTab key={s.id} server={s} />
+          : tab === 'perf' ? <PerfTab key={s.id} server={s} />
+          : tab === 'mods' ? <ModsTab key={s.id} server={s} /> : <SettingsTab key={s.id} s={s} />}</div>
     </div>
   )
 }

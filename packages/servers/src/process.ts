@@ -59,6 +59,10 @@ export class ServerProcess extends EventEmitter<Events> {
   private expectedStop = false
   private buf = ''
 
+  get pid(): number | undefined {
+    return this.child?.pid
+  }
+
   private setStatus(s: ServerStatus) {
     if (this.status === s) return
     this.status = s

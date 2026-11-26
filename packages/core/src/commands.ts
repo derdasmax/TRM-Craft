@@ -1,5 +1,6 @@
 import type { DeepPartial, Settings } from './settings'
 import type { UpdaterState } from './updater'
+import type { BackupInfo, FileContent, FileEntry, PlayerAction, PlayerEntry, ScheduleTask, StatsSample, WorldInfo } from './ops'
 import type { InstalledMod, ModInstallResult, ModpackInstallArgs, ModSearchArgs, ModSearchResult, ModSource, ModUpdate } from './mods'
 import type { CreateServerInput, LogEvent, ProgressEvent, ServerRecord, ServerView, SystemMemory, Loader, VersionInfo } from './servers'
 
@@ -35,7 +36,7 @@ export interface CommandMap {
   'versions.list': { args: Loader; result: VersionInfo[] }
   'servers.list': { args: void; result: ServerView[] }
   'servers.create': { args: { token: string; input: CreateServerInput }; result: ServerRecord }
-  'servers.update': { args: { id: string; patch: Partial<Pick<ServerRecord, 'name' | 'ramMb' | 'jvmPreset' | 'autoRestart' | 'autostart' | 'port'>> }; result: ServerRecord }
+  'servers.update': { args: { id: string; patch: Partial<Pick<ServerRecord, 'name' | 'ramMb' | 'jvmPreset' | 'autoRestart' | 'autostart' | 'port' | 'backup' | 'notify'>> }; result: ServerRecord }
   'servers.start': { args: string; result: void }
   'servers.stop': { args: string; result: void }
   'servers.restart': { args: string; result: void }
@@ -54,13 +55,43 @@ export interface CommandMap {
   'mods.checkUpdates': { args: string; result: ModUpdate[] }
   'mods.update': { args: { id: string; file: string }; result: void }
   'modpacks.install': { args: ModpackInstallArgs; result: { record: ServerRecord; warnings: string[] } }
+  'servers.setIcon': { args: { id: string; png: string }; result: void }
+  'servers.getIcon': { args: string; result: string | null }
+  'players.list': { args: string; result: PlayerEntry[] }
+  'players.action': { args: { id: string; action: PlayerAction; name: string; arg?: string }; result: void }
+  'files.list': { args: { id: string; path: string }; result: FileEntry[] }
+  'files.read': { args: { id: string; path: string }; result: FileContent }
+  'files.write': { args: { id: string; path: string; content: string }; result: void }
+  'files.mkdir': { args: { id: string; path: string }; result: void }
+  'files.delete': { args: { id: string; path: string }; result: void }
+  'files.rename': { args: { id: string; from: string; to: string }; result: void }
+  'files.unzip': { args: { id: string; path: string }; result: void }
+  'files.upload': { args: { id: string; dir: string; paths: string[] }; result: number }
+  'worlds.list': { args: string; result: WorldInfo[] }
+  'worlds.setActive': { args: { id: string; name: string }; result: void }
+  'worlds.export': { args: { id: string; name: string; dest: string }; result: void }
+  'worlds.import': { args: { id: string; zipPath: string }; result: string }
+  'worlds.reset': { args: { id: string; name: string }; result: void }
+  'backups.list': { args: string; result: BackupInfo[] }
+  'backups.create': { args: { id: string; label?: string }; result: BackupInfo }
+  'backups.restore': { args: { id: string; file: string }; result: void }
+  'backups.delete': { args: { id: string; file: string }; result: void }
+  'schedules.list': { args: void; result: ScheduleTask[] }
+  'schedules.save': { args: ScheduleTask; result: ScheduleTask }
+  'schedules.delete': { args: string; result: void }
+  'stats.history': { args: string; result: StatsSample[] }
+  'spark.profiler': { args: { id: string; action: 'start' | 'stop' }; result: void }
+  'notify.discordTest': { args: string; result: void }
+  'dialog.open': { args: { filters?: { name: string; extensions: string[] }[] }; result: string | null }
+  'dialog.save': { args: { defaultName: string }; result: string | null }
+  'dialog.folder': { args: void; result: string | null }
   'secrets.set': { args: { name: SecretName; value: string }; result: void }
   'secrets.has': { args: SecretName; result: boolean }
   'secrets.delete': { args: SecretName; result: void }
 }
 
 /** Namen der Geheimnisse, die verschlüsselt im Windows-Credential-Schutz (DPAPI) liegen. */
-export type SecretName = 'curseforge' | 'cloudflare'
+export type SecretName = 'curseforge' | 'cloudflare' | `discord:${string}`
 
 export type CommandName = keyof CommandMap
 export type CommandArgs<K extends CommandName> = CommandMap[K]['args']
@@ -104,6 +135,36 @@ export const commandRoles: Record<CommandName, Role> = {
   'mods.checkUpdates': 'viewer',
   'mods.update': 'admin',
   'modpacks.install': 'admin',
+  'servers.setIcon': 'admin',
+  'servers.getIcon': 'viewer',
+  'players.list': 'viewer',
+  'players.action': 'moderator',
+  'files.list': 'admin',
+  'files.read': 'admin',
+  'files.write': 'admin',
+  'files.mkdir': 'admin',
+  'files.delete': 'admin',
+  'files.rename': 'admin',
+  'files.unzip': 'admin',
+  'files.upload': 'admin',
+  'worlds.list': 'viewer',
+  'worlds.setActive': 'admin',
+  'worlds.export': 'admin',
+  'worlds.import': 'admin',
+  'worlds.reset': 'owner',
+  'backups.list': 'viewer',
+  'backups.create': 'moderator',
+  'backups.restore': 'admin',
+  'backups.delete': 'admin',
+  'schedules.list': 'viewer',
+  'schedules.save': 'admin',
+  'schedules.delete': 'admin',
+  'stats.history': 'viewer',
+  'spark.profiler': 'admin',
+  'notify.discordTest': 'admin',
+  'dialog.open': 'owner',
+  'dialog.save': 'owner',
+  'dialog.folder': 'owner',
   'secrets.set': 'owner',
   'secrets.has': 'owner',
   'secrets.delete': 'owner',
@@ -126,5 +187,6 @@ export interface AppEvents {
   'servers.removed': string
   'servers.log': LogEvent
   'servers.progress': ProgressEvent
+  'servers.stats': { id: string; sample: StatsSample }
 }
 export type EventName = keyof AppEvents
