@@ -24,7 +24,7 @@ Domain-Anbindung und einer Schnittstelle, über die später die TRM-Webseite die
 | **Leistung** | CPU, RAM, TPS, Spielerzahl als Verlauf, Warnung bei niedrigen TPS, Spark-Profiler, RAM-Empfehlung |
 | **Benachrichtigungen** | Windows-Benachrichtigungen und Discord-Webhook je Server |
 | **Netzwerk** | Öffentliche/lokale IP, Erreichbarkeits-Check, UPnP, Anleitung zur Portweiterleitung, Windows-Firewall-Regeln, Cloudflare-Domain mit SRV-Eintrag, Dynamisches DNS, Tunnel (playit.gg), Join-Karte mit QR-Code |
-| **Fernzugriff** | Ausgehende wss-Verbindung, Kopplung per Code, Rechte (Owner/Admin/Moderator/Ansehen), Upload von Mods/Modpacks/Welten mit Fortsetzen, Prüfsumme, Verlauf und Rückgängig |
+| **Fernzugriff** | Ausgehende wss-Verbindung mit automatischem HTTPS-Polling als Fallback, Statusanzeige in der Titelleiste, Schnappschüsse und Live-Ereignisse, Kopplung per Code (in beide Richtungen), Rechte (Owner/Admin/Moderator/Ansehen), Upload von Mods/Modpacks/Welten mit Fortsetzen, Prüfsumme, Verlauf und Rückgängig |
 | **Updates** | Automatische Updates der App aus GitHub-Releases, Rollback bei Absturz, Beta-Kanal. Server-Software-Updates (Paper, Purpur, Folia, Fabric ...) per Klick |
 | **Sonstiges** | Server klonen, bestehende Ordner importieren, Ressourcenlimits (CPU-Kerne, Priorität), Deutsch/Englisch, Hell/Dunkel, Akzentfarbe, Befehlspalette |
 
@@ -130,12 +130,16 @@ Im Server-Tab **Netzwerk**:
 
 ## Fernzugriff und Webseite
 
-Die App kann sich per ausgehender, verschlüsselter WebSocket-Verbindung mit der TRM-Webseite verbinden. Dafür ist keine Portfreigabe nötig.
-Die komplette Schnittstelle (Kopplung, Befehle, Ereignisse, Datei-Upload mit Fortsetzen, Rechte) ist in
-[docs/remote-api.md](docs/remote-api.md) beschrieben. Die Webseite muss nur noch angeschlossen werden.
-`scripts/mock-site.cjs` ist eine Mock-Webseite zum Ausprobieren.
+Die App verbindet sich per ausgehender, verschlüsselter Verbindung mit dem **TRM-Relay** (Teil der TRM-Webseite). Dafür ist keine Portfreigabe nötig.
+Sind WebSockets blockiert, schaltet sie automatisch auf HTTPS-Long-Polling um. In der Titelleiste steht, ob die Verbindung steht.
 
-Der Fernzugriff ist **standardmäßig aus** und lässt sich jederzeit abschalten oder die Kopplung lösen.
+- Die Adresse des Relays trägst du unter *Einstellungen → Fernzugriff* ein, z. B. `wss://relay.<deine-trm-domain>`. Ich kenne deine Domain nicht,
+  deshalb gibt es bewusst keinen fest eingebauten Standardwert.
+- Der Vertrag zwischen App und Webseite steht in [docs/remote-api.md](docs/remote-api.md) (Kopplung in beide Richtungen, Befehle, Fehlercodes,
+  Schnappschüsse, Ereignisse, Datei-Upload mit Fortsetzen, Rechte, Versionierung) und maschinenlesbar in
+  [docs/remote-api.schema.json](docs/remote-api.schema.json). Ein Test sorgt dafür, dass das Schema nicht veraltet (`UPDATE_SCHEMA=1 pnpm test` erzeugt es neu).
+- `scripts/mock-site.cjs` ist ein Mock-Relay zum Ausprobieren (`MODE=ws` oder `MODE=poll`).
+- Der Fernzugriff ist **standardmäßig aus** und lässt sich jederzeit abschalten oder die Kopplung lösen.
 
 ## Sicherheit
 
@@ -161,7 +165,7 @@ Discord (nur mit eingetragenem Webhook) und die TRM-Webseite (nur bei aktivem Fe
 
 Ehrlich getrennt nach "automatisch getestet" und "braucht deinen Windows-PC":
 
-**Automatisch getestet** (239 Tests, dazu 10 Live-Vertragstests gegen die echten APIs): Server-Lebenszyklus mit simuliertem Minecraft-Prozess, Downloads und Prüfsummen,
+**Automatisch getestet** (252 Tests, dazu 10 Live-Vertragstests gegen die echten APIs): Server-Lebenszyklus mit simuliertem Minecraft-Prozess, Downloads und Prüfsummen,
 Properties-Parser, Backups und Wiederherstellung, Welten, Zeitpläne, Mods und Modpacks, Pfad-Sicherheit, Rollen und Remote-Sperrliste,
 Upload mit Fortsetzen, UPnP/SOAP gegen Fake-Router, Cloudflare/DDNS gegen Fake-API, Versionierung und Changelog, Rollback-Logik,
 Updater-Countdown. Die echte Electron-App wurde zusätzlich headless gestartet und per IPC, gegen eine Mock-Webseite (Kopplung, Befehle,

@@ -26,16 +26,23 @@ export function RemoteSection() {
     <>
       <Section title={t('rm.title')}>
         <Row title={t('rm.url')}>
-          <input value={url} onChange={(e) => setUrl(e.target.value)} onBlur={() => url !== s.url && update({ remote: { url: url.trim() } })} placeholder="wss://…" aria-label={t('rm.url')} className={clsx(field, 'w-72 font-mono')} />
+          <input value={url} onChange={(e) => setUrl(e.target.value)} onBlur={() => url !== s.url && update({ remote: { url: url.trim() } })} placeholder="wss://relay.<deine-trm-domain>" aria-label={t('rm.url')} className={clsx(field, 'w-72 font-mono')} />
         </Row>
         <Row title={t('rm.name')}><input value={s.deviceName} maxLength={60} onChange={(e) => update({ remote: { deviceName: e.target.value } })} className={clsx(field, 'w-48')} aria-label={t('rm.name')} /></Row>
         {!st?.paired ? (
+          <>
           <Row title={t('rm.code')} hint={t('rm.code.hint')}>
             <div className="flex gap-2">
               <input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} maxLength={24} autoComplete="off" aria-label={t('rm.code')} className={clsx(field, 'w-40 font-mono tracking-wider')} />
               <Button disabled={!code.trim() || !s.url} onClick={async () => { if (await act(async () => { await invoke('remote.pair', code); return true })) { setCode(''); notify(t('rm.paired')) } }}>{t('rm.pair')}</Button>
             </div>
           </Row>
+          <Row title={t('rm.pairStart')}>
+            {st?.pairing ? (
+              <div className="flex items-center gap-3"><span className="text-[12.5px] text-muted">{t('rm.pairing.code')}</span><span className="select-text font-mono text-[18px] tracking-widest">{st.pairing.code}</span><Button variant="ghost" onClick={() => act(() => invoke('remote.pairCancel'))}>{t('rm.pairCancel')}</Button></div>
+            ) : <Button variant="ghost" disabled={!s.url} onClick={() => act(() => invoke('remote.pairStart'))}>{t('rm.pairStart')}</Button>}
+          </Row>
+          </>
         ) : (
           <>
             <Row title={t('rm.enabled')} hint={t('rm.enabled.hint')}><Switch label={t('rm.enabled')} checked={s.enabled} onChange={(enabled) => update({ remote: { enabled } })} /></Row>
@@ -47,6 +54,7 @@ export function RemoteSection() {
             <Row title={t('rm.unpair')}><Button variant="ghost" onClick={() => act(() => invoke('remote.unpair'))}>{t('rm.unpair')}</Button></Row>
           </>
         )}
+        {st?.connected && <Row title={t('rm.transport')}><span className="text-[13px] text-muted">{t(`rm.transport.${st.transport ?? 'websocket'}` as Key)}</span></Row>}
         <Row title="Status"><span role="status" className={clsx('flex items-center gap-2 text-[13px]', st?.connected ? 'text-accent' : 'text-muted')}><span className={clsx('h-2 w-2 rounded-full', st?.connected ? 'bg-accent' : 'bg-muted')} aria-hidden />{status}</span></Row>
         {st?.paired && (
           <div className="py-3.5">

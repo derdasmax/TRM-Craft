@@ -10,6 +10,10 @@ export interface RemoteStatus {
   /** Weitere Geräte bzw. Sitzungen, die gerade über die Webseite verbunden sind. */
   sessions: { id: string; name: string; role: Role; since: number }[]
   canUpload: boolean
+  /** Aktueller Übertragungsweg: WebSocket oder HTTPS-Long-Polling (Fallback). */
+  transport?: 'websocket' | 'polling'
+  /** Läuft gerade eine Kopplung "von der App aus": Code, der auf der Webseite einzugeben ist. */
+  pairing?: { code: string; expiresAt: number }
 }
 
 export type UploadStatus = 'receiving' | 'done' | 'failed' | 'undone'

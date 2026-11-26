@@ -1,7 +1,8 @@
-import { Minus, Square, Copy, X } from 'lucide-react'
+import { Cloud, CloudOff, Minus, Square, Copy, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { invoke, onEvent } from '../lib/bridge'
 import { useT } from '../lib/i18n'
+import { useStore } from '../lib/store'
 
 function Logo() {
   // Minecraft-Bezug dezent: 3x3-Pixelblock
@@ -12,6 +13,21 @@ function Logo() {
         <i key={i} className={c ? (i % 2 ? 'bg-accent/70' : 'bg-accent') : ''} style={{ borderRadius: 1 }} />
       ))}
     </div>
+  )
+}
+
+/** Zeigt, ob die App mit der TRM-Webseite verbunden ist. Nur sichtbar, wenn der Fernzugriff gekoppelt und aktiv ist. */
+function RemoteBadge() {
+  const t = useT()
+  const r = useStore((s) => s.remote)
+  const setPage = useStore((s) => s.setPage)
+  if (!r?.paired || !r.enabled) return null
+  const label = r.connected ? (r.transport === 'polling' ? t('rm.bar.polling') : t('rm.bar.connected')) : t('rm.bar.disconnected')
+  return (
+    <button onClick={() => setPage('settings')} title={r.lastError ?? label} className="no-drag ml-4 inline-flex h-6 items-center gap-1.5 rounded-full bg-raised/70 px-2.5 text-[11.5px] text-muted transition-colors hover:text-fg">
+      {r.connected ? <Cloud size={13} strokeWidth={1.75} className="text-accent" /> : <CloudOff size={13} strokeWidth={1.75} className="text-warn" />}
+      <span className="hidden sm:inline" role="status">{label}</span>
+    </button>
   )
 }
 
@@ -28,6 +44,7 @@ export function TitleBar() {
       <div className="flex items-center gap-2.5 pl-4">
         <Logo />
         <span className="font-display text-[12px] font-semibold tracking-[0.16em]">TRM-CRAFT</span>
+        <RemoteBadge />
       </div>
       <div className="flex h-full" onDoubleClick={(e) => e.stopPropagation()}>
         <button className={btn} aria-label={t('win.minimize')} onClick={() => invoke('window.minimize')}><Minus size={15} strokeWidth={1.75} /></button>

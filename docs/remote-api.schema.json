@@ -1,0 +1,961 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://trm-craft/remote-api.schema.json",
+  "title": "TRM-Craft Remote-API",
+  "description": "Nachrichten zwischen der TRM-Craft-App und dem TRM-Relay (Webseite). Quelle: packages/remote/src/protocol.ts. Neu erzeugen mit UPDATE_SCHEMA=1.",
+  "protocolVersion": 1,
+  "minProtocolVersion": 1,
+  "errorCodes": [
+    "disabled",
+    "unknown_command",
+    "local_only",
+    "forbidden",
+    "invalid_args",
+    "not_found",
+    "conflict",
+    "server_running",
+    "no_permission",
+    "too_large",
+    "unsupported_type",
+    "wrong_loader",
+    "checksum_mismatch",
+    "network",
+    "incompatible",
+    "internal"
+  ],
+  "uploadExtensions": [
+    ".jar",
+    ".zip",
+    ".mrpack",
+    ".mcpack",
+    ".mcaddon"
+  ],
+  "definitions": {
+    "Inbound": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "welcome"
+            },
+            "protocolVersion": {
+              "type": "integer"
+            },
+            "minProtocolVersion": {
+              "type": "integer"
+            },
+            "siteName": {
+              "type": "string",
+              "maxLength": 100
+            }
+          },
+          "required": [
+            "type",
+            "protocolVersion"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "cmd"
+            },
+            "id": {
+              "type": "string",
+              "pattern": "^[\\w-]{4,64}$"
+            },
+            "command": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "args": {},
+            "role": {
+              "type": "string",
+              "enum": [
+                "owner",
+                "admin",
+                "moderator",
+                "viewer"
+              ]
+            },
+            "user": {
+              "type": "string",
+              "maxLength": 80
+            }
+          },
+          "required": [
+            "type",
+            "id",
+            "command",
+            "role"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "subscribe"
+            },
+            "events": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 40
+              },
+              "maxItems": 20
+            },
+            "serverIds": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 40
+              },
+              "maxItems": 100
+            }
+          },
+          "required": [
+            "type",
+            "events"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "sessions"
+            },
+            "list": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "maxLength": 64
+                  },
+                  "name": {
+                    "type": "string",
+                    "maxLength": 80
+                  },
+                  "role": {
+                    "type": "string",
+                    "enum": [
+                      "owner",
+                      "admin",
+                      "moderator",
+                      "viewer"
+                    ]
+                  },
+                  "since": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "role",
+                  "since"
+                ],
+                "additionalProperties": false
+              },
+              "maxItems": 100
+            }
+          },
+          "required": [
+            "type",
+            "list"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "upload.begin"
+            },
+            "uploadId": {
+              "type": "string",
+              "pattern": "^[\\w-]{4,64}$"
+            },
+            "serverId": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "fileName": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "size": {
+              "type": "integer",
+              "exclusiveMinimum": 0
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-fA-F]{64}$"
+            },
+            "restartAfter": {
+              "type": "boolean"
+            },
+            "uploader": {
+              "type": "string",
+              "maxLength": 80
+            }
+          },
+          "required": [
+            "type",
+            "uploadId",
+            "serverId",
+            "fileName",
+            "size",
+            "sha256"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "upload.chunk"
+            },
+            "uploadId": {
+              "type": "string",
+              "pattern": "^[\\w-]{4,64}$"
+            },
+            "offset": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "data": {
+              "type": "string",
+              "maxLength": 6000000
+            }
+          },
+          "required": [
+            "type",
+            "uploadId",
+            "offset",
+            "data"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "upload.end"
+            },
+            "uploadId": {
+              "type": "string",
+              "pattern": "^[\\w-]{4,64}$"
+            }
+          },
+          "required": [
+            "type",
+            "uploadId"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "upload.cancel"
+            },
+            "uploadId": {
+              "type": "string",
+              "pattern": "^[\\w-]{4,64}$"
+            }
+          },
+          "required": [
+            "type",
+            "uploadId"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "upload.fetch"
+            },
+            "uploadId": {
+              "type": "string",
+              "pattern": "^[\\w-]{4,64}$"
+            },
+            "serverId": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "fileName": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "size": {
+              "type": "integer",
+              "exclusiveMinimum": 0
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-fA-F]{64}$"
+            },
+            "url": {
+              "type": "string",
+              "format": "uri",
+              "maxLength": 2000
+            },
+            "restartAfter": {
+              "type": "boolean"
+            },
+            "uploader": {
+              "type": "string",
+              "maxLength": 80
+            }
+          },
+          "required": [
+            "type",
+            "uploadId",
+            "serverId",
+            "fileName",
+            "size",
+            "sha256",
+            "url"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "ping"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "Outbound": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "hello"
+            },
+            "protocolVersion": {
+              "type": "integer"
+            },
+            "minProtocolVersion": {
+              "type": "integer"
+            },
+            "deviceId": {
+              "type": "string"
+            },
+            "deviceName": {
+              "type": "string"
+            },
+            "appVersion": {
+              "type": "string"
+            },
+            "platform": {
+              "type": "string"
+            },
+            "canUpload": {
+              "type": "boolean"
+            },
+            "transport": {
+              "type": "string",
+              "enum": [
+                "websocket",
+                "polling"
+              ]
+            },
+            "servers": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "edition": {
+                    "type": "string",
+                    "enum": [
+                      "java",
+                      "bedrock"
+                    ]
+                  },
+                  "loader": {
+                    "type": "string"
+                  },
+                  "mcVersion": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "stopped",
+                      "starting",
+                      "running",
+                      "stopping",
+                      "crashed"
+                    ]
+                  },
+                  "players": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "port": {
+                    "type": "integer"
+                  },
+                  "uptimeMs": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "cpu": {
+                    "type": "number"
+                  },
+                  "ramMb": {
+                    "type": "number"
+                  },
+                  "tps": {
+                    "type": "number"
+                  },
+                  "crash": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string"
+                      },
+                      "message": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "message"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "edition",
+                  "loader",
+                  "mcVersion",
+                  "status",
+                  "players",
+                  "port",
+                  "uptimeMs"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "type",
+            "protocolVersion",
+            "minProtocolVersion",
+            "deviceName",
+            "appVersion",
+            "platform",
+            "canUpload",
+            "transport",
+            "servers"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "snapshot"
+            },
+            "at": {
+              "type": "number"
+            },
+            "servers": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "edition": {
+                    "type": "string",
+                    "enum": [
+                      "java",
+                      "bedrock"
+                    ]
+                  },
+                  "loader": {
+                    "type": "string"
+                  },
+                  "mcVersion": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "stopped",
+                      "starting",
+                      "running",
+                      "stopping",
+                      "crashed"
+                    ]
+                  },
+                  "players": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "port": {
+                    "type": "integer"
+                  },
+                  "uptimeMs": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "cpu": {
+                    "type": "number"
+                  },
+                  "ramMb": {
+                    "type": "number"
+                  },
+                  "tps": {
+                    "type": "number"
+                  },
+                  "crash": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string"
+                      },
+                      "message": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "message"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "edition",
+                  "loader",
+                  "mcVersion",
+                  "status",
+                  "players",
+                  "port",
+                  "uptimeMs"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "type",
+            "at",
+            "servers"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "res"
+            },
+            "id": {
+              "type": "string"
+            },
+            "ok": {
+              "type": "boolean",
+              "const": true
+            },
+            "result": {}
+          },
+          "required": [
+            "type",
+            "id",
+            "ok"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "res"
+            },
+            "id": {
+              "type": "string"
+            },
+            "ok": {
+              "type": "boolean",
+              "const": false
+            },
+            "error": {
+              "type": "string"
+            },
+            "code": {
+              "type": "string",
+              "enum": [
+                "disabled",
+                "unknown_command",
+                "local_only",
+                "forbidden",
+                "invalid_args",
+                "not_found",
+                "conflict",
+                "server_running",
+                "no_permission",
+                "too_large",
+                "unsupported_type",
+                "wrong_loader",
+                "checksum_mismatch",
+                "network",
+                "incompatible",
+                "internal"
+              ]
+            }
+          },
+          "required": [
+            "type",
+            "id",
+            "ok",
+            "error",
+            "code"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "event"
+            },
+            "event": {
+              "type": "string"
+            },
+            "payload": {}
+          },
+          "required": [
+            "type",
+            "event"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "pong"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "upload.ready"
+            },
+            "uploadId": {
+              "type": "string"
+            },
+            "received": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "type",
+            "uploadId",
+            "received"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "upload.ack"
+            },
+            "uploadId": {
+              "type": "string"
+            },
+            "received": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "type",
+            "uploadId",
+            "received"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "upload.done"
+            },
+            "uploadId": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "type",
+            "uploadId",
+            "kind",
+            "warnings"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "upload.failed"
+            },
+            "uploadId": {
+              "type": "string"
+            },
+            "error": {
+              "type": "string"
+            },
+            "code": {
+              "type": "string",
+              "enum": [
+                "disabled",
+                "unknown_command",
+                "local_only",
+                "forbidden",
+                "invalid_args",
+                "not_found",
+                "conflict",
+                "server_running",
+                "no_permission",
+                "too_large",
+                "unsupported_type",
+                "wrong_loader",
+                "checksum_mismatch",
+                "network",
+                "incompatible",
+                "internal"
+              ]
+            }
+          },
+          "required": [
+            "type",
+            "uploadId",
+            "error",
+            "code"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "PairResponse": {
+      "type": "object",
+      "properties": {
+        "deviceToken": {
+          "type": "string",
+          "minLength": 16,
+          "maxLength": 4096
+        },
+        "deviceId": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "siteName": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "perms": {
+          "type": "object",
+          "properties": {
+            "upload": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "additionalProperties": false,
+          "default": {}
+        }
+      },
+      "required": [
+        "deviceToken",
+        "deviceId"
+      ],
+      "additionalProperties": false
+    },
+    "PairStart": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9-]{4,24}$"
+        },
+        "pollId": {
+          "type": "string",
+          "pattern": "^[\\w-]{8,80}$"
+        },
+        "expiresInSec": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 3600
+        }
+      },
+      "required": [
+        "code",
+        "pollId",
+        "expiresInSec"
+      ],
+      "additionalProperties": false
+    },
+    "PairStatus": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "const": "pending"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "const": "paired"
+            },
+            "deviceToken": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 4096
+            },
+            "deviceId": {
+              "type": "string",
+              "maxLength": 100
+            },
+            "siteName": {
+              "type": "string",
+              "maxLength": 100
+            },
+            "perms": {
+              "type": "object",
+              "properties": {
+                "upload": {
+                  "type": "boolean",
+                  "default": false
+                }
+              },
+              "additionalProperties": false,
+              "default": {}
+            }
+          },
+          "required": [
+            "status",
+            "deviceToken",
+            "deviceId"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "PollSession": {
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "type": "string",
+          "pattern": "^[\\w-]{8,80}$"
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
+      "additionalProperties": false
+    },
+    "PollResponse": {
+      "type": "object",
+      "properties": {
+        "messages": {
+          "type": "array",
+          "items": {},
+          "maxItems": 500
+        }
+      },
+      "required": [
+        "messages"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

@@ -7,9 +7,9 @@ import { loadGuard, saveGuard } from './guard-store'
 import { rollbackTo } from './rollback'
 import { createTray } from './tray'
 import { registerShutdownHook, stopAll } from './lifecycle'
-import { activeWorld, buildJoinInfo, checkReachable, Cloudflare, Ddns, Firewall, installModpack, isDiscordWebhook, localIps, ModManager, PlayitTunnel, publicIp, ruleName, Scheduler, ServerManager, UpnpClient } from '@trm/servers'
+import { activeWorld, buildJoinInfo, diffServerEvents, checkReachable, Cloudflare, Ddns, Firewall, installModpack, isDiscordWebhook, localIps, ModManager, PlayitTunnel, publicIp, ruleName, Scheduler, ServerManager, UpnpClient } from '@trm/servers'
 import { Notifier } from './notifier'
-import { pairDevice, RemoteClient, UploadManager, type UploadServer } from '@trm/remote'
+import { httpBase, LongPollSocket, pairDevice, RemoteClient, startPairing, UploadManager, waitForPairing, type PairResponse, type ServerSummary, type UploadServer } from '@trm/remote'
 import { commandRoles, type RemoteStatus } from '@trm/core'
 import { hostname } from 'node:os'
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -29,7 +29,9 @@ let notifier: Notifier
 let ddns: Ddns
 let remote: RemoteClient
 let uploads: UploadManager
-let remoteState: { connected: boolean; error?: string; sessions: RemoteStatus['sessions'] } = { connected: false, sessions: [] }
+let remoteState: { connected: boolean; transport: 'websocket' | 'polling'; siteName?: string; error?: string; sessions: RemoteStatus['sessions'] } = { connected: false, transport: 'websocket', sessions: [] }
+let pairing: { code: string; expiresAt: number; abort: AbortController } | null = null
+const eventPrev = new Map<string, { status: ServerView['status']; players: string[] }>()
 let tunnel: PlayitTunnel
 const upnp = new UpnpClient()
 let upnpReady = false
@@ -44,7 +46,23 @@ function readDevice(): { deviceId: string; siteName?: string; canUpload: boolean
 function remoteStatus(): RemoteStatus {
   const r = settings.get().remote
   const dev = readDevice()
-  return { enabled: r.enabled, paired: secrets.has('remote'), connected: remoteState.connected, url: r.url, siteName: dev?.siteName, lastError: remoteState.error, sessions: remoteState.sessions, canUpload: !!dev?.canUpload }
+  return { enabled: r.enabled, paired: secrets.has('remote'), connected: remoteState.connected, url: r.url, siteName: remoteState.siteName ?? dev?.siteName, lastError: remoteState.error, sessions: remoteState.sessions, canUpload: !!dev?.canUpload, transport: remoteState.transport, pairing: pairing ? { code: pairing.code, expiresAt: pairing.expiresAt } : undefined }
+}
+
+/** Speichert das Geräte-Token verschlüsselt und verbindet. Gemeinsam für beide Kopplungs-Wege. */
+function finishPairing(res: PairResponse) {
+  secrets.set('remote', res.deviceToken)
+  writeFileSync(deviceFile(), JSON.stringify({ deviceId: res.deviceId, siteName: res.siteName, canUpload: res.perms.upload }))
+  emit('settings.changed', settings.update({ remote: { enabled: true } }))
+  remote.start()
+}
+
+/** Kompakter Überblick für `hello` und `snapshot`. */
+function summaries(): ServerSummary[] {
+  return servers.list().map((s) => {
+    const last = servers.statsHistory(s.id).at(-1)
+    return { id: s.id, name: s.name, edition: s.edition, loader: s.loader, mcVersion: s.mcVersion, status: s.status, players: s.players, port: s.port, uptimeMs: s.startedAt ? Date.now() - s.startedAt : null, cpu: last?.cpu, ramMb: last?.ramMb, tps: last?.tps, crash: s.lastCrash ? { kind: s.lastCrash.kind, message: s.lastCrash.message } : undefined }
+  })
 }
 const isCommand = (c: string): c is CommandName => c in commandRoles
 
@@ -232,13 +250,25 @@ const handlers: Record<CommandName, (args: any) => unknown> = {
   'remote.status': () => remoteStatus(),
   'remote.pair': async (code) => {
     const r = settings.get().remote
-    const res = await pairDevice(r.url, code, r.deviceName || hostname(), app.getVersion())
-    secrets.set('remote', res.deviceToken)
-    writeFileSync(deviceFile(), JSON.stringify({ deviceId: res.deviceId, siteName: res.siteName, canUpload: res.perms.upload }))
-    const next = settings.update({ remote: { enabled: true } })
-    emit('settings.changed', next)
-    remote.start()
+    finishPairing(await pairDevice(r.url, code, r.deviceName || hostname(), app.getVersion()))
     return remoteStatus()
+  },
+  // Kopplung "umgekehrt": Die App zeigt einen Code, der auf der Webseite eingegeben wird.
+  'remote.pairStart': async () => {
+    const r = settings.get().remote
+    pairing?.abort.abort()
+    const p = await startPairing(r.url, r.deviceName || hostname(), app.getVersion())
+    const abort = new AbortController()
+    pairing = { code: p.code, expiresAt: p.expiresAt, abort }
+    void waitForPairing(r.url, p, fetch, { signal: abort.signal })
+      .then((res) => { pairing = null; finishPairing(res) })
+      .catch((e: Error) => { pairing = null; remoteState = { ...remoteState, error: e.message }; emit('remote.status', remoteStatus()) })
+    return remoteStatus()
+  },
+  'remote.pairCancel': () => {
+    pairing?.abort.abort()
+    pairing = null
+    emit('remote.status', remoteStatus())
   },
   'remote.unpair': () => {
     secrets.delete('remote')
@@ -390,7 +420,15 @@ app.whenReady().then(async () => {
     emit: (e, p) => {
       emit(e, p)
       remote?.forward(e, p)
-      if (e === 'servers.status') notifier.onStatus(p as ServerView)
+      if (e === 'servers.status') {
+        const v = p as ServerView
+        notifier.onStatus(v)
+        // Joins, Abstürze usw. gehen immer an die Webseite (ohne Abo).
+        for (const ev of diffServerEvents(eventPrev.get(v.id), { status: v.status, players: v.players })) {
+          remote?.forward('servers.event', { id: v.id, name: v.name, kind: ev.type, player: 'player' in ev ? ev.player : undefined, detail: ev.type === 'crashed' ? v.lastCrash?.message : undefined })
+        }
+        eventPrev.set(v.id, { status: v.status, players: v.players })
+      }
     },
     onLowTps: (id, tps) => {
       const s = servers.view(id)
@@ -426,7 +464,9 @@ app.whenReady().then(async () => {
     create: (url, token) => new WebSocket(url, { headers: { authorization: `Bearer ${token}` }, handshakeTimeout: 10_000, maxPayload: 8 * 1024 * 1024 }) as never,
     exec: (c, a) => Promise.resolve(handlers[c](a)),
     known: isCommand,
-    hello: () => ({ deviceId: readDevice()?.deviceId, deviceName: settings.get().remote.deviceName || hostname(), appVersion: app.getVersion(), platform: process.platform, canUpload: !!readDevice()?.canUpload, servers: servers.list().map((s) => ({ id: s.id, name: s.name, loader: s.loader, mcVersion: s.mcVersion, edition: s.edition, status: s.status, players: s.players.length })) }),
+    createPoll: (url, token) => new LongPollSocket(httpBase(url), token),
+    hello: () => ({ deviceId: readDevice()?.deviceId, deviceName: settings.get().remote.deviceName || hostname(), appVersion: app.getVersion(), platform: process.platform, canUpload: !!readDevice()?.canUpload, servers: summaries() }),
+    snapshot: summaries,
     uploads,
     onState: (st) => { remoteState = st; emit('remote.status', remoteStatus()) },
   })

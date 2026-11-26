@@ -3,7 +3,7 @@ import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readFileS
 import { basename, extname, join } from 'node:path'
 import { downloadFile, allowHost } from '@trm/servers'
 import type { UploadRecord } from '@trm/core'
-import { UPLOAD_EXTENSIONS } from './protocol'
+import { classifyError, UPLOAD_EXTENSIONS } from './protocol'
 import { placeUpload, undoUpload, type PlaceHost, type Undo } from './place'
 
 export interface UploadServer extends PlaceHost {
@@ -69,7 +69,7 @@ export class UploadManager {
     rmSync(s.part, { force: true })
     this.states.delete(s.id)
     this.record(s, { status: 'failed', error: msg, undoable: false }, undefined, serverName)
-    this.d.send({ type: 'upload.failed', uploadId: s.id, error: msg })
+    this.d.send({ type: 'upload.failed', uploadId: s.id, error: msg, code: classifyError(new Error(msg)) })
   }
 
   /** Prüft Anfrage und bereitet den Empfang vor. Antwortet mit `upload.ready` oder `upload.failed`. */
@@ -98,7 +98,7 @@ export class UploadManager {
 
   chunk(m: { uploadId: string; offset: number; data: string }): void {
     const s = this.states.get(m.uploadId)
-    if (!s) return this.d.send({ type: 'upload.failed', uploadId: m.uploadId, error: 'Unbekannter Upload.' })
+    if (!s) return this.d.send({ type: 'upload.failed', uploadId: m.uploadId, error: 'Unbekannter Upload.', code: 'not_found' })
     // Bei Versatz: aktuellen Stand melden, die Webseite sendet ab dort erneut.
     if (m.offset !== s.received) return this.d.send({ type: 'upload.ack', uploadId: s.id, received: s.received })
     const buf = Buffer.from(m.data, 'base64')
@@ -113,7 +113,7 @@ export class UploadManager {
 
   async end(m: { uploadId: string }): Promise<void> {
     const s = this.states.get(m.uploadId)
-    if (!s) return this.d.send({ type: 'upload.failed', uploadId: m.uploadId, error: 'Unbekannter Upload.' })
+    if (!s) return this.d.send({ type: 'upload.failed', uploadId: m.uploadId, error: 'Unbekannter Upload.', code: 'not_found' })
     if (s.received !== s.size) return this.d.send({ type: 'upload.ack', uploadId: s.id, received: s.received })
     await this.finish(s)
   }

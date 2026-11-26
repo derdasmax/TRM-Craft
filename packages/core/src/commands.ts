@@ -110,6 +110,8 @@ export interface CommandMap {
   'net.tunnel.stop': { args: void; result: void }
   'remote.status': { args: void; result: RemoteStatus }
   'remote.pair': { args: string; result: RemoteStatus }
+  'remote.pairStart': { args: void; result: RemoteStatus }
+  'remote.pairCancel': { args: void; result: void }
   'remote.unpair': { args: void; result: void }
   'remote.uploads': { args: void; result: UploadRecord[] }
   'remote.undo': { args: string; result: void }
@@ -219,6 +221,8 @@ export const commandRoles: Record<CommandName, Role> = {
   'net.tunnel.stop': 'owner',
   'remote.status': 'owner',
   'remote.pair': 'owner',
+  'remote.pairStart': 'owner',
+  'remote.pairCancel': 'owner',
   'remote.unpair': 'owner',
   'remote.uploads': 'owner',
   'remote.undo': 'owner',

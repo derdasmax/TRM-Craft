@@ -481,6 +481,15 @@ const de = {
   'im.go': 'Importieren',
   'im.hint': 'Der Ordner wird kopiert. Das Original bleibt unverändert.',
   'im.done': 'Server importiert.',
+  'rm.bar.connected': 'Mit TRM-Seite verbunden',
+  'rm.bar.disconnected': 'TRM-Seite getrennt',
+  'rm.bar.polling': 'Verbunden (Polling)',
+  'rm.pairStart': 'Code in der App anzeigen',
+  'rm.pairing.code': 'Gib diesen Code auf der Webseite ein:',
+  'rm.pairCancel': 'Abbrechen',
+  'rm.transport': 'Verbindungsart',
+  'rm.transport.websocket': 'WebSocket',
+  'rm.transport.polling': 'HTTPS-Polling (Fallback)',
 } as const
 
 type Key = keyof typeof de
@@ -965,6 +974,15 @@ const en: Record<Key, string> = {
   'im.go': 'Import',
   'im.hint': 'The folder is copied. The original stays untouched.',
   'im.done': 'Server imported.',
+  'rm.bar.connected': 'Connected to TRM site',
+  'rm.bar.disconnected': 'TRM site disconnected',
+  'rm.bar.polling': 'Connected (polling)',
+  'rm.pairStart': 'Show code in the app',
+  'rm.pairing.code': 'Enter this code on the website:',
+  'rm.pairCancel': 'Cancel',
+  'rm.transport': 'Connection type',
+  'rm.transport.websocket': 'WebSocket',
+  'rm.transport.polling': 'HTTPS polling (fallback)',
 }
 
 export const dictionaries = { de, en } as const
