@@ -7,7 +7,8 @@ export async function act<T>(fn: () => Promise<T>): Promise<T | undefined> {
   } catch (e) {
     const raw = e instanceof Error ? e.message : String(e)
     // Electron hängt "Error invoking remote method ..." an
-    useStore.getState().notify(raw.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
+    const msg = raw.replace(/^Error invoking remote method '[^']+': (Error: |TypeError: )?/, '')
+    useStore.getState().notify(/fetch failed|ENOTFOUND|ECONNREFUSED|ETIMEDOUT/i.test(msg) ? 'Keine Verbindung zum Dienst. Prüfe deine Internetverbindung.' : msg)
     return undefined
   }
 }

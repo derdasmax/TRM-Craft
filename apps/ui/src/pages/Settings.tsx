@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import { useEffect, useState } from 'react'
 import type { Accent } from '@trm/core'
 import { Button, Row, Section, Segmented, Switch } from '../components/ui'
 import { invoke } from '../lib/bridge'
@@ -6,6 +7,33 @@ import { useStore } from '../lib/store'
 import { useT, type Key } from '../lib/i18n'
 
 export const accents: Accent[] = ['emerald', 'amber', 'violet', 'sky', 'rose']
+
+function Integrations() {
+  const t = useT()
+  const notify = useStore((x) => x.notify)
+  const [has, setHas] = useState(false)
+  const [value, setValue] = useState('')
+  useEffect(() => { invoke('secrets.has', 'curseforge').then(setHas) }, [])
+  const save = async () => {
+    try { await invoke('secrets.set', { name: 'curseforge', value }); setValue(''); setHas(true) }
+    catch (e) { notify(String(e instanceof Error ? e.message : e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')) }
+  }
+  return (
+    <Section title={t('int.title')}>
+      <Row title={t('int.curseforge')} hint={t('int.curseforge.hint')}>
+        <div className="flex items-center gap-2">
+          {has ? <>
+            <span className="text-[12.5px] text-accent">{t('int.set')}</span>
+            <Button variant="ghost" onClick={async () => { await invoke('secrets.delete', 'curseforge'); setHas(false) }}>{t('int.remove')}</Button>
+          </> : <>
+            <input type="password" autoComplete="off" value={value} onChange={(e) => setValue(e.target.value)} aria-label={t('int.curseforge')} placeholder={t('int.notSet')} className="no-drag hairline h-9 w-48 select-text rounded-ctl bg-raised/60 px-3 font-mono text-[13px] outline-none focus:border-accent/50" />
+            <Button disabled={!value.trim()} onClick={save}>{t('int.save')}</Button>
+          </>}
+        </div>
+      </Row>
+    </Section>
+  )
+}
 
 export function Settings() {
   const t = useT()
@@ -51,6 +79,8 @@ export function Settings() {
           <Switch label={t('settings.notifications')} checked={s.notifications.desktop} onChange={(desktop) => update({ notifications: { desktop } })} />
         </Row>
       </Section>
+
+      <Integrations />
 
       <Section title={t('upd.title')}>
         <Row title={t('upd.channel')}>

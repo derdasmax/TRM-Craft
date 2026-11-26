@@ -2,8 +2,9 @@ import { motion } from 'framer-motion'
 import { ArrowLeft, Trash2, TriangleAlert } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import clsx from 'clsx'
-import type { ServerView } from '@trm/core'
+import { extensionKind, type ServerView } from '@trm/core'
 import { Console } from '../components/Console'
+import { ModsTab, supportsMods } from '../components/ModsTab'
 import { ServerActions } from '../components/ServerActions'
 import { StatusPill } from '../components/StatusPill'
 import { Button, Row, Section, Segmented, Switch } from '../components/ui'
@@ -59,7 +60,7 @@ export function ServerPage() {
   const id = useStore((s) => s.selected)
   const s = useStore((x) => (id ? x.servers[id] : undefined))
   const setPage = useStore((x) => x.setPage)
-  const [tab, setTab] = useState<'console' | 'settings'>('console')
+  const [tab, setTab] = useState<'console' | 'mods' | 'settings'>('console')
   useEffect(() => { if (!s) setPage('dashboard') }, [s, setPage])
   if (!s) return null
   return (
@@ -78,8 +79,8 @@ export function ServerPage() {
           <div><div className="font-semibold text-danger">{t('srv.crash')}</div><div className="mt-0.5">{s.lastCrash.message}</div>{s.lastCrash.hint && <div className="mt-0.5 text-muted">{s.lastCrash.hint}</div>}</div>
         </motion.div>
       )}
-      <div className="mb-4"><Segmented id="srvtab" value={tab} onChange={setTab} options={[{ value: 'console', label: t('srv.tab.console') }, { value: 'settings', label: t('srv.tab.settings') }]} /></div>
-      <div className="min-h-0 flex-1 overflow-y-auto">{tab === 'console' ? <Console server={s} /> : <SettingsTab key={s.id} s={s} />}</div>
+      <div className="mb-4"><Segmented id="srvtab" value={tab} onChange={setTab} options={[{ value: 'console' as const, label: t('srv.tab.console') }, ...(supportsMods(s) ? [{ value: 'mods' as const, label: t(extensionKind(s.loader) === 'plugin' ? 'mods.tab.plugin' : 'mods.tab.mod') }] : []), { value: 'settings' as const, label: t('srv.tab.settings') }]} /></div>
+      <div className="min-h-0 flex-1 overflow-y-auto">{tab === 'console' ? <Console server={s} /> : tab === 'mods' ? <ModsTab key={s.id} server={s} /> : <SettingsTab key={s.id} s={s} />}</div>
     </div>
   )
 }

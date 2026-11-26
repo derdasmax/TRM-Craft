@@ -29,6 +29,9 @@ function browserBridge(): TrmBridge {
         case 'system.memory': return { totalMb: 16384, freeMb: 8000 }
         case 'servers.list': return []
         case 'versions.list': return [{ id: '1.21.4', type: 'release' }, { id: '1.21.3', type: 'release' }, { id: '1.20.6', type: 'release' }]
+        case 'secrets.has': return false
+        case 'mods.installed': return []
+        case 'mods.search': return { hits: [], total: 0 }
         case 'updater.getState': return { phase: 'uptodate', currentVersion: '0.0.0-dev' }
         case 'window.toggleMaximize': case 'window.isMaximized': return false
         default: return undefined

@@ -23,8 +23,8 @@ export interface ResolvedFabric {
   installer: string
 }
 
-export async function resolveFabric(mc: string, f?: FetchLike): Promise<ResolvedFabric> {
-  const loader = firstStable(Entries.parse(await fetchJson(`${BASE.fabric}/versions/loader`, f)))
+export async function resolveFabric(mc: string, f?: FetchLike, pinned?: string): Promise<ResolvedFabric> {
+  const loader = pinned ?? firstStable(Entries.parse(await fetchJson(`${BASE.fabric}/versions/loader`, f)))
   const inst = firstStable(Entries.parse(await fetchJson(`${BASE.fabric}/versions/installer`, f)))
   if (!loader || !inst) throw new Error(`Fabric unterstützt ${mc} nicht.`)
   return { url: `${BASE.fabric}/versions/loader/${encodeURIComponent(mc)}/${loader}/${inst}/server/jar`, loader, installer: inst }

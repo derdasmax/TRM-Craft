@@ -24,9 +24,9 @@ export interface ResolvedForge {
 }
 
 /** Bevorzugt die empfohlene Version, sonst die neueste. */
-export async function resolveForge(mc: string, f?: FetchLike): Promise<ResolvedForge> {
-  const { promos } = PromosSchema.parse(await fetchJson(PROMOS_URL, f))
-  const v = promos[`${mc}-recommended`] ?? promos[`${mc}-latest`]
+export async function resolveForge(mc: string, f?: FetchLike, pinned?: string): Promise<ResolvedForge> {
+  const { promos } = pinned ? { promos: {} as Record<string, string> } : PromosSchema.parse(await fetchJson(PROMOS_URL, f))
+  const v = pinned ?? promos[`${mc}-recommended`] ?? promos[`${mc}-latest`]
   if (!v) throw new Error(`Für Minecraft ${mc} gibt es kein Forge.`)
   const full = `${mc}-${v}`
   return { forgeVersion: v, installerUrl: `https://maven.minecraftforge.net/net/minecraftforge/forge/${full}/forge-${full}-installer.jar` }
@@ -56,7 +56,8 @@ export async function listNeoForgeVersions(f?: FetchLike): Promise<VersionInfo[]
   return [...mcs].sort(compareVersionsDesc).map((id) => ({ id, type: 'release' as const }))
 }
 
-export async function resolveNeoForge(mc: string, f?: FetchLike): Promise<{ neoVersion: string; installerUrl: string }> {
+export async function resolveNeoForge(mc: string, f?: FetchLike, pinned?: string): Promise<{ neoVersion: string; installerUrl: string }> {
+  if (pinned) return { neoVersion: pinned, installerUrl: `https://maven.neoforged.net/releases/net/neoforged/neoforge/${pinned}/neoforge-${pinned}-installer.jar` }
   const { versions } = NeoVersionsSchema.parse(await fetchJson(NF_VERSIONS, f))
   const candidates = versions.filter((v) => isStableNeo(v) && neoForgeToMc(v) === mc)
   const best = candidates.sort((a, b) => compareVersionsDesc(a, b))[0]

@@ -1,5 +1,6 @@
 import type { DeepPartial, Settings } from './settings'
 import type { UpdaterState } from './updater'
+import type { InstalledMod, ModInstallResult, ModpackInstallArgs, ModSearchArgs, ModSearchResult, ModSource, ModUpdate } from './mods'
 import type { CreateServerInput, LogEvent, ProgressEvent, ServerRecord, ServerView, SystemMemory, Loader, VersionInfo } from './servers'
 
 /**
@@ -44,7 +45,22 @@ export interface CommandMap {
   'servers.logs': { args: string; result: string[] }
   'servers.properties.get': { args: string; result: Record<string, string> }
   'servers.properties.set': { args: { id: string; values: Record<string, string> }; result: void }
+  'mods.search': { args: ModSearchArgs; result: ModSearchResult }
+  'mods.installed': { args: string; result: InstalledMod[] }
+  'mods.install': { args: { id: string; source: ModSource; projectId: string }; result: ModInstallResult }
+  'mods.addFiles': { args: { id: string; paths: string[]; force?: boolean }; result: ModInstallResult }
+  'mods.toggle': { args: { id: string; file: string; enabled: boolean }; result: void }
+  'mods.remove': { args: { id: string; file: string }; result: void }
+  'mods.checkUpdates': { args: string; result: ModUpdate[] }
+  'mods.update': { args: { id: string; file: string }; result: void }
+  'modpacks.install': { args: ModpackInstallArgs; result: { record: ServerRecord; warnings: string[] } }
+  'secrets.set': { args: { name: SecretName; value: string }; result: void }
+  'secrets.has': { args: SecretName; result: boolean }
+  'secrets.delete': { args: SecretName; result: void }
 }
+
+/** Namen der Geheimnisse, die verschlüsselt im Windows-Credential-Schutz (DPAPI) liegen. */
+export type SecretName = 'curseforge' | 'cloudflare'
 
 export type CommandName = keyof CommandMap
 export type CommandArgs<K extends CommandName> = CommandMap[K]['args']
@@ -79,6 +95,18 @@ export const commandRoles: Record<CommandName, Role> = {
   'servers.logs': 'viewer',
   'servers.properties.get': 'admin',
   'servers.properties.set': 'admin',
+  'mods.search': 'viewer',
+  'mods.installed': 'viewer',
+  'mods.install': 'admin',
+  'mods.addFiles': 'admin',
+  'mods.toggle': 'admin',
+  'mods.remove': 'admin',
+  'mods.checkUpdates': 'viewer',
+  'mods.update': 'admin',
+  'modpacks.install': 'admin',
+  'secrets.set': 'owner',
+  'secrets.has': 'owner',
+  'secrets.delete': 'owner',
 }
 
 const roleRank: Record<Role, number> = { viewer: 0, moderator: 1, admin: 2, owner: 3 }

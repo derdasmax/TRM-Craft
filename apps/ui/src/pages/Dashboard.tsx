@@ -1,5 +1,8 @@
 import { motion } from 'framer-motion'
-import { Plus, Server } from 'lucide-react'
+import { AnimatePresence } from 'framer-motion'
+import { Package, Plus, Server } from 'lucide-react'
+import { useState } from 'react'
+import { ModpackDialog } from '../components/ModpackDialog'
 import { Button } from '../components/ui'
 import { ServerCard } from '../components/ServerCard'
 import { useT } from '../lib/i18n'
@@ -18,13 +21,17 @@ export function Dashboard() {
   const t = useT()
   const servers = Object.values(useStore((s) => s.servers)).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
   const setWizard = useStore((s) => s.setWizard)
+  const [packOpen, setPackOpen] = useState(false)
   const online = servers.filter((s) => s.status === 'running').length
   const players = servers.reduce((n, s) => n + s.players.length, 0)
   return (
     <div className="mx-auto max-w-5xl p-8">
       <div className="mb-6 flex items-center justify-between gap-4">
         <h1 className="font-display text-[26px] font-semibold tracking-tight">{t('dash.title')}</h1>
-        {servers.length > 0 && <Button onClick={() => setWizard(true)}><Plus size={15} strokeWidth={2} />{t('srv.new')}</Button>}
+        <div className="flex gap-2">
+          <Button variant="ghost" onClick={() => setPackOpen(true)}><Package size={15} strokeWidth={1.75} />{t('pack.open')}</Button>
+          {servers.length > 0 && <Button onClick={() => setWizard(true)}><Plus size={15} strokeWidth={2} />{t('srv.new')}</Button>}
+        </div>
       </div>
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Stat label={t('dash.stat.servers')} value={String(servers.length)} delay={0} />
@@ -45,6 +52,7 @@ export function Dashboard() {
           {servers.map((s, i) => <ServerCard key={s.id} s={s} index={i} />)}
         </div>
       )}
+      <AnimatePresence>{packOpen && <ModpackDialog onClose={() => setPackOpen(false)} />}</AnimatePresence>
     </div>
   )
 }

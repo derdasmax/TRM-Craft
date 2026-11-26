@@ -5,6 +5,8 @@ import { listPaperVersions, resolvePaperBuild } from './paper'
 import { resolveJre } from './adoptium'
 import { resolveBedrock } from './bedrock'
 import { resolveGeyser } from './geyser'
+import { searchHangar } from './hangar'
+import { compatibleVersion, searchModrinth } from './modrinth'
 import { listMetaGameVersions, resolveFabric, resolveQuilt } from './fabric'
 import { listForgeVersions, listNeoForgeVersions, resolveForge, resolveNeoForge } from './forge'
 import { listPurpurVersions, resolvePurpur } from './purpur'
@@ -70,5 +72,19 @@ describe.runIf(live)('Live-APIs', () => {
     const b = await resolveBedrock()
     expect(b.version).toMatch(/^\d+\.\d+\.\d+/)
     for (const p of ['geyser', 'floodgate'] as const) expect((await resolveGeyser(p)).sha256).toMatch(/^[0-9a-f]{64}$/)
+  }, 30_000)
+
+  it('Modrinth: Suche und kompatible Version', async () => {
+    const r = await searchModrinth({ query: 'sodium', kind: 'mod', loaders: ['fabric'], mcVersion: '1.21.4', offset: 0 })
+    expect(r.hits.length).toBeGreaterThan(0)
+    const v = await compatibleVersion(r.hits[0]!.id, ['fabric'], '1.21.4')
+    expect(v?.files[0]?.hashes.sha512).toMatch(/^[0-9a-f]{128}$/)
+    const packs = await searchModrinth({ query: '', kind: 'modpack', loaders: [], offset: 0 })
+    expect(packs.hits.length).toBeGreaterThan(0)
+  }, 30_000)
+
+  it('Hangar: Suche', async () => {
+    const r = await searchHangar('worldedit', 'PAPER', undefined, 0)
+    expect(r.hits.length).toBeGreaterThan(0)
   }, 30_000)
 })

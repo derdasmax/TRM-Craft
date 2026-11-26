@@ -5,7 +5,7 @@ import os from 'node:os'
 import { join, resolve, sep } from 'node:path'
 import {
   CreateServerInputSchema, LOADER_INFO, SERVER_ID, ServerRecordSchema,
-  type AppEvents, type CreateServerInput, type CrashReport, type ServerRecord, type ServerView, type SystemMemory, type VersionInfo, type Loader,
+  type AppEvents, type CreateServerInput, type CrashReport, type ServerRecord, type ServerStatus, type ServerView, type SystemMemory, type VersionInfo, type Loader,
 } from '@trm/core'
 import { analyzeCrash } from './crash'
 import { downloadFile, type FetchLike } from './download'
@@ -96,6 +96,14 @@ export class ServerManager {
     return dir
   }
 
+  recordOf(id: string): ServerRecord {
+    return this.rec(id)
+  }
+
+  statusOf(id: string): ServerStatus {
+    return this.runtimes.get(id)?.proc.status ?? 'stopped'
+  }
+
   private rec(id: string): ServerRecord {
     const r = this.records.find((x) => x.id === id)
     if (!r) throw new Error('Server nicht gefunden.')
@@ -175,7 +183,7 @@ export class ServerManager {
         ? await (this.d.ensureJavaImpl ?? ensureJava)({ runtimesDir: this.runtimesDir, major: javaMajor, platform: this.d.platform, fetchImpl: this.d.fetchImpl, onProgress: progress })
         : ''
       const result = await defs[input.loader].install({
-        dir, version: input.mcVersion, java, platform: this.d.platform ?? process.platform, fetchImpl: this.d.fetchImpl,
+        dir, version: input.mcVersion, loaderVersion: input.loaderVersion, java, platform: this.d.platform ?? process.platform, fetchImpl: this.d.fetchImpl,
         download: this.d.downloadImpl ?? downloadFile, run: this.d.installerRunner ?? runInstaller, extract: (zip, to) => extract(zip, { dir: to }), progress,
       })
       if (info.extFolder) mkdirSync(join(dir, info.extFolder), { recursive: true })

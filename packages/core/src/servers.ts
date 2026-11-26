@@ -90,6 +90,8 @@ export const CreateServerInputSchema = z.object({
   gamemode: z.enum(['survival', 'creative', 'adventure']).optional(),
   difficulty: z.enum(['peaceful', 'easy', 'normal', 'hard']).optional(),
   maxPlayers: z.number().int().min(1).max(1000).optional(),
+  /** Fest vorgegebene Loader-Version (z. B. aus einem Modpack). */
+  loaderVersion: z.string().max(60).regex(/^[\w.+-]+$/).optional(),
   /** Java-Server zusätzlich für Bedrock-Spieler öffnen (Geyser + Floodgate). */
   crossplay: z.boolean().optional(),
   /** Quelle der Welt: leer = neue Welt. */

@@ -1,5 +1,4 @@
-import { app, BrowserWindow, ipcMain, Notification, session, shell } from 'electron'
-import { join } from 'node:path'
+import { app, BrowserWindow, ipcMain, Notification, safeStorage, session, shell } from 'electron'
 import { IPC_CHANNEL, IPC_EVENT_CHANNEL, onHealthy, onStart, type CommandName } from '@trm/core'
 import { dataDir, settingsFile } from './paths'
 import { SettingsStore } from './settings-store'
@@ -8,7 +7,9 @@ import { loadGuard, saveGuard } from './guard-store'
 import { rollbackTo } from './rollback'
 import { createTray } from './tray'
 import { registerShutdownHook, stopAll } from './lifecycle'
-import { ServerManager } from '@trm/servers'
+import { installModpack, ModManager, ServerManager } from '@trm/servers'
+import { join } from 'node:path'
+import { SecretStore } from './secrets'
 
 const DEV_URL = process.env.TRM_DEV_URL
 let win: BrowserWindow | null = null
@@ -16,6 +17,8 @@ let splash: BrowserWindow | null = null
 let settings: SettingsStore
 let updater: UpdaterService
 let servers: ServerManager
+let mods: ModManager
+let secrets: SecretStore
 let quitting = false
 const HEALTHY_AFTER_MS = 20_000
 
@@ -74,6 +77,23 @@ const handlers: Record<CommandName, (args: any) => unknown> = {
   'servers.logs': (id) => servers.logs(id),
   'servers.properties.get': (id) => servers.getProperties(id),
   'servers.properties.set': ({ id, values }) => servers.setProperties(id, values),
+  'mods.search': (a) => mods.search(a),
+  'mods.installed': (id) => mods.installed(id),
+  'mods.install': ({ id, source, projectId }) => mods.install(id, source, projectId),
+  'mods.addFiles': ({ id, paths, force }) => mods.addFiles(id, paths, force),
+  'mods.toggle': ({ id, file, enabled }) => mods.toggle(id, file, enabled),
+  'mods.remove': ({ id, file }) => mods.remove(id, file),
+  'mods.checkUpdates': (id) => mods.checkUpdates(id),
+  'mods.update': ({ id, file }) => mods.update(id, file),
+  'modpacks.install': (args) =>
+    installModpack(
+      { create: (t, i) => servers.create(t, i), serverDir: (id) => servers.serverDir(id), remove: (id) => servers.remove(id) },
+      args,
+      { curseKey: () => secrets.get('curseforge'), progress: (label, percent) => emit('servers.progress', { token: args.token, label, percent }) },
+    ),
+  'secrets.set': ({ name, value }) => secrets.set(name, value),
+  'secrets.has': (name) => secrets.has(name),
+  'secrets.delete': (name) => secrets.delete(name),
   'shell.openExternal': (url: string) => {
     // Nur https-Links nach außen öffnen.
     if (typeof url === 'string' && url.startsWith('https://')) return shell.openExternal(url)
@@ -95,7 +115,7 @@ function setupSecurity() {
     "default-src 'self'",
     "script-src 'self'" + (DEV_URL ? " 'unsafe-inline'" : ''),
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: https://mc-heads.net https://cdn.modrinth.com https://crafatar.com",
+    "img-src 'self' data: https://mc-heads.net https://cdn.modrinth.com https://crafatar.com https://media.forgecdn.net https://hangarcdn.papermc.io",
     "font-src 'self' data:",
     "connect-src 'self'" + (DEV_URL ? ` ${DEV_URL.replace('http', 'ws')} ${DEV_URL}` : ''),
   ].join('; ')
@@ -194,6 +214,12 @@ app.whenReady().then(async () => {
   settings = new SettingsStore(settingsFile())
   const rolledBackFrom = await runCrashGuard()
   servers = new ServerManager({ dataDir: dataDir(), emit: (e, p) => emit(e, p) })
+  secrets = new SecretStore(join(dataDir(), 'secrets.json'), {
+    isAvailable: () => safeStorage.isEncryptionAvailable(),
+    encrypt: (p) => safeStorage.encryptString(p),
+    decrypt: (d) => safeStorage.decryptString(d),
+  })
+  mods = new ModManager({ servers, curseKey: () => secrets.get('curseforge') })
   // Vor Updates/Beenden: Spieler warnen und Server sauber stoppen. Danach laufen sie von selbst wieder an.
   registerShutdownHook({ name: 'servers', activeCount: () => servers.activeCount(), announce: (s) => servers.announce(s), stop: ({ resume }) => servers.shutdownAll(resume) })
   updater = new UpdaterService(() => settings.get(), (s) => emit('updater.state', s), rolledBackFrom)

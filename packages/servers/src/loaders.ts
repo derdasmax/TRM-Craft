@@ -15,6 +15,7 @@ import { listPurpurVersions, resolvePurpur } from './providers/purpur'
 export interface InstallCtx {
   dir: string
   version: string
+  loaderVersion?: string
   java: string
   platform: NodeJS.Platform
   fetchImpl?: FetchLike
@@ -137,7 +138,7 @@ export const LOADER_DEFS: Record<Loader, LoaderDef> = {
     versions: (f) => listMetaGameVersions('fabric', f),
     javaMajor: mcJava,
     async install(c) {
-      const r = await resolveFabric(c.version, c.fetchImpl)
+      const r = await resolveFabric(c.version, c.fetchImpl, c.loaderVersion)
       await c.download({ url: r.url, dest: join(c.dir, 'server.jar'), fetchImpl: c.fetchImpl, onProgress: dlProgress(c, 'Fabric wird geladen …') })
       return { build: r.loader, launch: JAR }
     },
@@ -150,7 +151,7 @@ export const LOADER_DEFS: Record<Loader, LoaderDef> = {
       const installer = join(c.dir, 'quilt-installer.jar')
       await c.download({ url: q.installerUrl, dest: installer, fetchImpl: c.fetchImpl, onProgress: dlProgress(c, 'Quilt-Installer wird geladen …') })
       c.progress('Quilt wird installiert …', null)
-      await c.run({ java: c.java, args: ['-jar', 'quilt-installer.jar', 'install', 'server', c.version, '--download-server', `--install-dir=${c.dir}`], cwd: c.dir, onLine: (l) => c.progress(`Quilt: ${l.slice(0, 80)}`, null) })
+      await c.run({ java: c.java, args: ['-jar', 'quilt-installer.jar', 'install', 'server', c.version, '--download-server', `--install-dir=${c.dir}`, ...(c.loaderVersion ? [`--loader-version=${c.loaderVersion}`] : [])], cwd: c.dir, onLine: (l) => c.progress(`Quilt: ${l.slice(0, 80)}`, null) })
       rmSync(installer, { force: true })
       const jar = findJar(c.dir, (n) => n === 'quilt-server-launch.jar')
       if (!jar) throw new Error('Quilt-Startdatei wurde nicht gefunden.')
@@ -161,7 +162,7 @@ export const LOADER_DEFS: Record<Loader, LoaderDef> = {
     versions: listForgeVersions,
     javaMajor: mcJava,
     async install(c) {
-      const r = await resolveForge(c.version, c.fetchImpl)
+      const r = await resolveForge(c.version, c.fetchImpl, c.loaderVersion)
       const installer = join(c.dir, 'forge-installer.jar')
       await c.download({ url: r.installerUrl, dest: installer, fetchImpl: c.fetchImpl, onProgress: dlProgress(c, 'Forge-Installer wird geladen …') })
       c.progress('Forge wird installiert (das dauert etwas) …', null)
@@ -174,7 +175,7 @@ export const LOADER_DEFS: Record<Loader, LoaderDef> = {
     versions: listNeoForgeVersions,
     javaMajor: mcJava,
     async install(c) {
-      const r = await resolveNeoForge(c.version, c.fetchImpl)
+      const r = await resolveNeoForge(c.version, c.fetchImpl, c.loaderVersion)
       const installer = join(c.dir, 'neoforge-installer.jar')
       await c.download({ url: r.installerUrl, dest: installer, fetchImpl: c.fetchImpl, onProgress: dlProgress(c, 'NeoForge-Installer wird geladen …') })
       c.progress('NeoForge wird installiert (das dauert etwas) …', null)
