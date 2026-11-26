@@ -171,9 +171,9 @@ Upload) und visuell (Screenshots) geprüft.
 
 1. **Installer und Auto-Update.** Der Windows-Build läuft erst in GitHub Actions. Erster Test siehe oben.
    Die Tests laufen dort auch unter Windows. Schlägt dort eines fehl, wird bewusst **kein** Release veröffentlicht. Dann bitte das Log ansehen.
-2. **Anbieter-APIs.** In der Entwicklungsumgebung waren Mojang, PaperMC, Modrinth u. a. nicht erreichbar. Die Anbieter-Module sind gegen die
-   dokumentierten Formate gebaut und mit Fixtures getestet. Der Workflow **"API-Vertragstest"** prüft sie gegen die echten APIs
-   (manuell unter *Actions* starten). **Bitte einmal ausführen.** Schlägt etwas fehl, steht dort genau, welches Format abweicht.
+2. **Anbieter-APIs: geprüft.** Der Workflow "API-Vertragstest" hat die Anbieter-Module gegen die echten APIs laufen lassen (Mojang, PaperMC, Adoptium,
+   Fabric, Quilt, Forge, NeoForge, Purpur, Bedrock-Download, Geyser, Modrinth, Hangar). Dabei fiel ein Fehler auf (Quilt ohne `stable`-Feld), der behoben wurde.
+   Der Test läuft wöchentlich weiter und meldet, falls sich ein Format ändert. **Nicht** geprüft sind die Downloads selbst, Cloudflare und CurseForge (brauchen deine Keys).
 3. **Echtes Spiel.** Server erstellen und starten, Spieler joinen lassen (Java, Bedrock, Crossplay).
 4. **Router/Firewall.** UPnP, Windows-Firewall-Regeln (UAC-Abfrage), Cloudflare-Einrichtung, playit.gg-Agent.
 5. **Windows-Details.** Die CPU/RAM-Messung nutzt PowerShell (`Get-Process`), das Erkennen von Prozessen und das Beenden unter Windows.
