@@ -67,6 +67,14 @@ describe('paper', () => {
   })
 })
 
+describe('Quilt-Listen ohne stable-Feld', () => {
+  it('werden akzeptiert', async () => {
+    const { resolveQuilt } = await import('./fabric')
+    const f = router({ '/versions/installer': [{ url: 'x', maven: 'y', version: '0.9.2' }, { version: '0.9.1' }] })
+    expect((await resolveQuilt(f)).installerVersion).toBe('0.9.2')
+  })
+})
+
 describe('adoptium', () => {
   it('löst die JRE auf', async () => {
     const f = router({ '/assets/latest/21/': [{ binary: { package: { link: 'https://github.com/adoptium/x.zip', checksum: 'c', name: 'x.zip' } } }] })

@@ -2,7 +2,8 @@ import { z } from 'zod'
 import type { VersionInfo } from '@trm/core'
 import { fetchJson, type FetchLike } from '../download'
 
-const Entry = z.object({ version: z.string(), stable: z.boolean() })
+// Quilt liefert bei Loader und Installer kein `stable`-Feld. Fehlt es, gilt der Eintrag als stabil.
+const Entry = z.object({ version: z.string(), stable: z.boolean().default(true) })
 const Entries = z.array(Entry)
 
 export type MetaKind = 'fabric' | 'quilt'
