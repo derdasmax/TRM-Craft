@@ -7,7 +7,7 @@ import { loadGuard, saveGuard } from './guard-store'
 import { rollbackTo } from './rollback'
 import { createTray } from './tray'
 import { registerShutdownHook, stopAll } from './lifecycle'
-import { installModpack, isDiscordWebhook, ModManager, Scheduler, ServerManager } from '@trm/servers'
+import { buildJoinInfo, checkReachable, Cloudflare, Ddns, Firewall, installModpack, isDiscordWebhook, localIps, ModManager, PlayitTunnel, publicIp, ruleName, Scheduler, ServerManager, UpnpClient } from '@trm/servers'
 import { Notifier } from './notifier'
 import { join } from 'node:path'
 import { SecretStore } from './secrets'
@@ -21,6 +21,33 @@ let servers: ServerManager
 let mods: ModManager
 let scheduler: Scheduler
 let notifier: Notifier
+let ddns: Ddns
+let tunnel: PlayitTunnel
+const upnp = new UpnpClient()
+let upnpReady = false
+const firewall = new Firewall()
+/** Von TRM-Craft angelegte UPnP-Weiterleitungen je Server. */
+const mapped = new Map<string, { port: number; protocol: 'TCP' | 'UDP' }[]>()
+
+/** Alle Ports, die Spieler für diesen Server erreichen müssen. */
+function serverPorts(id: string): { port: number; protocol: 'TCP' | 'UDP' }[] {
+  const r = servers.recordOf(id)
+  const list: { port: number; protocol: 'TCP' | 'UDP' }[] = [{ port: r.port, protocol: r.edition === 'bedrock' ? 'UDP' : 'TCP' }]
+  if (r.bedrockPort) list.push({ port: r.bedrockPort, protocol: 'UDP' })
+  return list
+}
+
+/** Entfernt unsere Weiterleitungen beim Beenden (höchstens 3 s warten). */
+function upnpCleanup(): Promise<unknown> {
+  const all = [...mapped.values()].flat()
+  if (!all.length) return Promise.resolve()
+  return Promise.race([Promise.all(all.map((m) => upnp.deleteMapping(m.port, m.protocol).catch(() => {}))), new Promise((r) => setTimeout(r, 3000))])
+}
+
+async function ensureUpnp() {
+  if (!upnpReady) upnpReady = await upnp.connect().catch(() => false)
+  if (!upnpReady) throw new Error('Kein UPnP-Router gefunden. Aktiviere UPnP im Router oder leite die Ports manuell weiter.')
+}
 let secrets: SecretStore
 let quitting = false
 const HEALTHY_AFTER_MS = 20_000
@@ -78,6 +105,8 @@ const handlers: Record<CommandName, (args: any) => unknown> = {
   'servers.delete': async (id) => {
     await servers.remove(id)
     scheduler.removeForServer(id)
+    await ddns.remove(id).catch(() => {})
+    if (mapped.has(id)) await upnp.deleteMapping(mapped.get(id)![0]!.port, 'TCP').catch(() => {})
     notifier.forget(id)
     secrets.delete(`discord:${id}`)
   },
@@ -132,6 +161,49 @@ const handlers: Record<CommandName, (args: any) => unknown> = {
   'dialog.open': async ({ filters }) => (await dialog.showOpenDialog(win!, { properties: ['openFile'], filters })).filePaths[0] ?? null,
   'dialog.save': async ({ defaultName }) => (await dialog.showSaveDialog(win!, { defaultPath: defaultName, filters: [{ name: 'ZIP', extensions: ['zip'] }] })).filePath ?? null,
   'dialog.folder': async () => (await dialog.showOpenDialog(win!, { properties: ['openDirectory', 'createDirectory'] })).filePaths[0] ?? null,
+  'net.info': async () => ({ publicIp: await publicIp(), localIps: localIps() }),
+  'net.join': async (id) => buildJoinInfo(servers.recordOf(id), { domain: ddns.get(id), publicIp: await publicIp(), tunnel: null }),
+  'net.reach': async (id) => {
+    if (servers.statusOf(id) !== 'running') throw new Error('Starte den Server, um die Erreichbarkeit zu prüfen.')
+    const ip = await publicIp()
+    if (!ip) throw new Error('Die öffentliche IP konnte nicht ermittelt werden. Bist du online?')
+    const r = servers.recordOf(id)
+    const checks = [checkReachable(ip, r.port, r.edition)]
+    if (r.bedrockPort) checks.push(checkReachable(ip, r.bedrockPort, 'bedrock'))
+    return Promise.all(checks)
+  },
+  'net.upnp.status': async () => {
+    try { await ensureUpnp() } catch { return { available: false, mapped: [...mapped.values()].flat() } }
+    return { available: true, externalIp: (await upnp.externalIp().catch(() => null)) ?? undefined, mapped: [...mapped.values()].flat() }
+  },
+  'net.upnp.open': async (id) => {
+    await ensureUpnp()
+    const ip = localIps()[0]
+    if (!ip) throw new Error('Keine lokale Netzwerkadresse gefunden.')
+    const done: { port: number; protocol: 'TCP' | 'UDP' }[] = []
+    for (const m of serverPorts(id)) { await upnp.addMapping(m.port, m.protocol, ip, `TRM-Craft ${servers.recordOf(id).name}`); done.push(m) }
+    mapped.set(id, done)
+  },
+  'net.upnp.close': async (id) => {
+    await ensureUpnp()
+    for (const m of mapped.get(id) ?? serverPorts(id)) await upnp.deleteMapping(m.port, m.protocol).catch(() => {})
+    mapped.delete(id)
+  },
+  'net.firewall.status': async (id) => ({ supported: firewall.supported, rules: await Promise.all(serverPorts(id).map(async (m) => ({ port: m.port, protocol: m.protocol, present: await firewall.exists(ruleName(id, m.protocol, m.port)) }))) }),
+  'net.firewall.add': (id) => firewall.add(id, serverPorts(id).map((m) => ({ proto: m.protocol, port: m.port }))),
+  'net.firewall.remove': (id) => firewall.remove(id, serverPorts(id).map((m) => ({ proto: m.protocol, port: m.port }))),
+  'net.cf.verify': async () => {
+    const t = secrets.get('cloudflare')
+    if (!t) return { ok: false, message: 'Es ist kein Cloudflare-Token gespeichert.' }
+    try { await new Cloudflare(t).verify(); return { ok: true } } catch (e) { return { ok: false, message: (e as Error).message } }
+  },
+  'net.domain.get': (id) => ddns.get(id),
+  'net.domain.set': ({ id, domain, sub, srv }) => ddns.set(id, domain, sub, srv),
+  'net.domain.remove': (id) => ddns.remove(id),
+  'net.ddns.run': async () => void (await ddns.tick()),
+  'net.tunnel.state': () => tunnel.state,
+  'net.tunnel.start': () => tunnel.start(),
+  'net.tunnel.stop': () => tunnel.stop(),
   'secrets.set': ({ name, value }) => {
     if (!/^(curseforge|cloudflare|discord:[a-z0-9][a-z0-9-]{0,39})$/.test(name)) throw new Error('Unbekanntes Geheimnis.')
     if (name.startsWith('discord:') && !isDiscordWebhook(value.trim())) throw new Error('Das ist keine gültige Discord-Webhook-URL.')
@@ -274,6 +346,8 @@ app.whenReady().then(async () => {
       if (s.notify.desktop && settings.get().notifications.desktop) new Notification({ title: 'TRM-Craft', body: `${s.name}: Die TPS sind niedrig (${tps}).` }).show()
     },
   })
+  ddns = new Ddns({ file: join(dataDir(), 'domains.json'), token: () => secrets.get('cloudflare'), publicIp: () => publicIp(), portOf: (id) => { try { return servers.recordOf(id).port } catch { return null } } })
+  tunnel = new PlayitTunnel({ dir: join(dataDir(), 'runtimes', 'playit'), emit: (s) => emit('net.tunnel', s) })
   scheduler = new Scheduler(
     join(dataDir(), 'schedules.json'),
     {
@@ -304,6 +378,7 @@ app.whenReady().then(async () => {
   setTimeout(() => void updater.check(), 8_000)
   void servers.resume()
   servers.startMonitoring()
+  ddns.start()
   scheduler.start()
 })
 
@@ -313,8 +388,10 @@ app.on('before-quit', (e) => {
   e.preventDefault()
   scheduler?.stop()
   servers?.stopMonitoring()
+  ddns?.stop()
+  tunnel?.stop()
   // Server sauber stoppen, dann endgültig beenden.
-  stopAll().finally(() => app.quit())
+  Promise.all([stopAll(), upnpCleanup()]).finally(() => app.quit())
 })
 
 app.on('second-instance', () => {

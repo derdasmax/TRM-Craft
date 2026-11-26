@@ -34,6 +34,10 @@ function browserBridge(): TrmBridge {
         case 'mods.search': return { hits: [], total: 0 }
         case 'stats.history': case 'players.list': case 'backups.list': case 'worlds.list': case 'schedules.list': return []
         case 'servers.getIcon': return null
+        case 'net.info': return { publicIp: null, localIps: [] }
+        case 'net.join': return {}
+        case 'net.domain.get': return null
+        case 'net.tunnel.state': return { status: 'stopped', lines: [] }
         case 'updater.getState': return { phase: 'uptodate', currentVersion: '0.0.0-dev' }
         case 'window.toggleMaximize': case 'window.isMaximized': return false
         default: return undefined

@@ -6,6 +6,7 @@ import { extensionKind, type ServerView } from '@trm/core'
 import { BackupsTab } from '../components/BackupsTab'
 import { Console } from '../components/Console'
 import { FilesTab } from '../components/FilesTab'
+import { NetworkTab } from '../components/NetworkTab'
 import { PerfTab } from '../components/PerfTab'
 import { PlayersTab } from '../components/PlayersTab'
 import { SchedulesTab } from '../components/SchedulesTab'
@@ -71,7 +72,7 @@ export function ServerPage() {
   const id = useStore((s) => s.selected)
   const s = useStore((x) => (id ? x.servers[id] : undefined))
   const setPage = useStore((x) => x.setPage)
-  const [tab, setTab] = useState<'console' | 'players' | 'files' | 'worlds' | 'backups' | 'schedules' | 'perf' | 'mods' | 'settings'>('console')
+  const [tab, setTab] = useState<'console' | 'players' | 'files' | 'worlds' | 'backups' | 'schedules' | 'perf' | 'network' | 'mods' | 'settings'>('console')
   useEffect(() => { if (!s) setPage('dashboard') }, [s, setPage])
   if (!s) return null
   return (
@@ -99,6 +100,7 @@ export function ServerPage() {
           { value: 'backups' as const, label: t('tab.backups') },
           { value: 'schedules' as const, label: t('tab.schedules') },
           { value: 'perf' as const, label: t('tab.perf') },
+          { value: 'network' as const, label: t('tab.network') },
           ...(supportsMods(s) ? [{ value: 'mods' as const, label: t(extensionKind(s.loader) === 'plugin' ? 'mods.tab.plugin' : 'mods.tab.mod') }] : []),
           { value: 'settings' as const, label: t('srv.tab.settings') },
         ]} />
@@ -110,6 +112,7 @@ export function ServerPage() {
           : tab === 'backups' ? <BackupsTab key={s.id} server={s} />
           : tab === 'schedules' ? <SchedulesTab key={s.id} server={s} />
           : tab === 'perf' ? <PerfTab key={s.id} server={s} />
+          : tab === 'network' ? <NetworkTab key={s.id} server={s} />
           : tab === 'mods' ? <ModsTab key={s.id} server={s} /> : <SettingsTab key={s.id} s={s} />}</div>
     </div>
   )

@@ -1,5 +1,6 @@
 import type { DeepPartial, Settings } from './settings'
 import type { UpdaterState } from './updater'
+import type { CloudflareStatus, DomainConfig, FirewallStatus, JoinInfo, NetInfo, ReachResult, TunnelState, UpnpStatus } from './net'
 import type { BackupInfo, FileContent, FileEntry, PlayerAction, PlayerEntry, ScheduleTask, StatsSample, WorldInfo } from './ops'
 import type { InstalledMod, ModInstallResult, ModpackInstallArgs, ModSearchArgs, ModSearchResult, ModSource, ModUpdate } from './mods'
 import type { CreateServerInput, LogEvent, ProgressEvent, ServerRecord, ServerView, SystemMemory, Loader, VersionInfo } from './servers'
@@ -85,6 +86,23 @@ export interface CommandMap {
   'dialog.open': { args: { filters?: { name: string; extensions: string[] }[] }; result: string | null }
   'dialog.save': { args: { defaultName: string }; result: string | null }
   'dialog.folder': { args: void; result: string | null }
+  'net.info': { args: void; result: NetInfo }
+  'net.join': { args: string; result: JoinInfo }
+  'net.reach': { args: string; result: ReachResult[] }
+  'net.upnp.status': { args: void; result: UpnpStatus }
+  'net.upnp.open': { args: string; result: void }
+  'net.upnp.close': { args: string; result: void }
+  'net.firewall.status': { args: string; result: FirewallStatus }
+  'net.firewall.add': { args: string; result: void }
+  'net.firewall.remove': { args: string; result: void }
+  'net.cf.verify': { args: void; result: CloudflareStatus }
+  'net.domain.get': { args: string; result: DomainConfig | null }
+  'net.domain.set': { args: { id: string; domain: string; sub: string; srv: boolean }; result: DomainConfig }
+  'net.domain.remove': { args: string; result: void }
+  'net.ddns.run': { args: void; result: void }
+  'net.tunnel.state': { args: void; result: TunnelState }
+  'net.tunnel.start': { args: void; result: void }
+  'net.tunnel.stop': { args: void; result: void }
   'secrets.set': { args: { name: SecretName; value: string }; result: void }
   'secrets.has': { args: SecretName; result: boolean }
   'secrets.delete': { args: SecretName; result: void }
@@ -165,6 +183,23 @@ export const commandRoles: Record<CommandName, Role> = {
   'dialog.open': 'owner',
   'dialog.save': 'owner',
   'dialog.folder': 'owner',
+  'net.info': 'viewer',
+  'net.join': 'viewer',
+  'net.reach': 'admin',
+  'net.upnp.status': 'admin',
+  'net.upnp.open': 'admin',
+  'net.upnp.close': 'admin',
+  'net.firewall.status': 'admin',
+  'net.firewall.add': 'owner',
+  'net.firewall.remove': 'owner',
+  'net.cf.verify': 'owner',
+  'net.domain.get': 'admin',
+  'net.domain.set': 'owner',
+  'net.domain.remove': 'owner',
+  'net.ddns.run': 'admin',
+  'net.tunnel.state': 'admin',
+  'net.tunnel.start': 'owner',
+  'net.tunnel.stop': 'owner',
   'secrets.set': 'owner',
   'secrets.has': 'owner',
   'secrets.delete': 'owner',
@@ -188,5 +223,6 @@ export interface AppEvents {
   'servers.log': LogEvent
   'servers.progress': ProgressEvent
   'servers.stats': { id: string; sample: StatsSample }
+  'net.tunnel': TunnelState
 }
 export type EventName = keyof AppEvents

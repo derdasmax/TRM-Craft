@@ -24,7 +24,7 @@ const ALLOWED = [
   'release-assets.githubusercontent.com', 'api.adoptium.net', 'meta.fabricmc.net', 'maven.fabricmc.net',
   'maven.neoforged.net', 'maven.minecraftforge.net', 'files.minecraftforge.net', 'cdn.modrinth.com',
   'api.modrinth.com', 'www.minecraft.net', 'minecraft.azureedge.net', 'cdn.azul.com', 'download.geysermc.org',
-  'api.purpurmc.org', 'repo.papermc.io', 'hub.spigotmc.org', 'api.cloudflare.com', 'ci.md-5.net', 'hangar.papermc.io', 'api.curseforge.com', 'edge.forgecdn.net', 'mediafilez.forgecdn.net', 'raw.githubusercontent.com', 'gitlab.com', 'net-secondary.web.minecraft-services.net', 'meta.quiltmc.org', 'maven.quiltmc.org',
+  'api.purpurmc.org', 'repo.papermc.io', 'hub.spigotmc.org', 'api.cloudflare.com', 'ci.md-5.net', 'api.ipify.org', 'api.mcsrvstat.us', 'api.github.com', 'hangar.papermc.io', 'api.curseforge.com', 'edge.forgecdn.net', 'mediafilez.forgecdn.net', 'raw.githubusercontent.com', 'gitlab.com', 'net-secondary.web.minecraft-services.net', 'meta.quiltmc.org', 'maven.quiltmc.org',
 ]
 const extraHosts = new Set<string>()
 export const allowHost = (h: string) => extraHosts.add(h)

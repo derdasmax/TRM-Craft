@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { defaultSettings, mergeSettings, type AppInfo, type DeepPartial, type ProgressEvent, type ServerView, type Settings, type StatsSample, type UpdaterState } from '@trm/core'
+import { defaultSettings, mergeSettings, type AppInfo, type DeepPartial, type ProgressEvent, type ServerView, type Settings, type StatsSample, type TunnelState, type UpdaterState } from '@trm/core'
 import { invoke, onEvent } from './bridge'
 
 const LOG_CAP = 1500
@@ -16,6 +16,7 @@ interface State {
   logs: Record<string, string[]>
   progress: Record<string, ProgressEvent>
   stats: Record<string, StatsSample[]>
+  tunnel: TunnelState
   page: Page
   selected: string | null
   wizardOpen: boolean
@@ -39,6 +40,7 @@ export const useStore = create<State>((set, get) => ({
   logs: {},
   progress: {},
   stats: {},
+  tunnel: { status: 'stopped', lines: [] },
   page: 'dashboard',
   selected: null,
   wizardOpen: false,
@@ -75,6 +77,8 @@ export const useStore = create<State>((set, get) => ({
       }),
     )
     onEvent('servers.stats', ({ id, sample }) => set((s) => ({ stats: { ...s.stats, [id]: [...(s.stats[id] ?? []).slice(-359), sample] } })))
+    onEvent('net.tunnel', (tunnel) => set({ tunnel }))
+    invoke('net.tunnel.state').then((tunnel) => set({ tunnel })).catch(() => {})
     onEvent('servers.progress', (p) => set((s) => ({ progress: { ...s.progress, [p.token]: p } })))
   },
 }))
