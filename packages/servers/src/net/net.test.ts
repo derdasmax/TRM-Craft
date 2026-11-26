@@ -233,7 +233,8 @@ describe('Tunnel (playit.gg)', () => {
     writeFileSync(script, "console.log('Visit https://playit.gg/claim/xyz'); setTimeout(() => console.log('tunnel running'), 30); setTimeout(() => process.exit(0), 200)")
     const t = new PlayitTunnel({ dir, emit: (s) => states.push(s), command: () => ({ cmd: process.execPath, args: [script] }) })
     await t.start()
-    await new Promise((r) => setTimeout(r, 350))
+    // Auf den Endzustand warten statt feste Zeit (Windows startet Prozesse langsamer).
+    for (let i = 0; i < 100 && t.state.status !== 'stopped'; i++) await new Promise((r) => setTimeout(r, 50))
     expect(states.some((s) => s.claimUrl === 'https://playit.gg/claim/xyz')).toBe(true)
     expect(states.some((s) => s.status === 'running')).toBe(true)
     expect(t.state.status).toBe('stopped')
