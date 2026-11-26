@@ -9,7 +9,8 @@ export interface ShutdownHook {
   /** Warnung im Spiel-Chat, z. B. "Server startet in 60 Sekunden neu". */
   announce(secondsLeft: number): Promise<void> | void
   /** Server sauber stoppen (Welt speichern). */
-  stop(): Promise<void>
+  /** `resume`: Server nach dem Neustart wieder starten (z. B. nach einem Update). */
+  stop(opts: { resume: boolean }): Promise<void>
 }
 
 const hooks: ShutdownHook[] = []
@@ -24,6 +25,6 @@ export function registerShutdownHook(h: ShutdownHook): () => void {
 
 export const activeServerCount = () => hooks.reduce((n, h) => n + h.activeCount(), 0)
 export const announceAll = (s: number) => Promise.all(hooks.map((h) => h.announce(s)))
-export const stopAll = async () => {
-  for (const h of hooks) await h.stop()
+export const stopAll = async (resume = false) => {
+  for (const h of hooks) await h.stop({ resume })
 }

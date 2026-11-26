@@ -4,6 +4,7 @@ import { defaultSettings, mergeSettings } from '@trm/core'
 interface TrmBridge {
   invoke(command: string, args?: unknown): Promise<unknown>
   on(event: string, cb: (payload: unknown) => void): () => void
+  pathForFile?(file: File): string
 }
 declare global {
   interface Window { trm?: TrmBridge }
@@ -25,6 +26,9 @@ function browserBridge(): TrmBridge {
           try { localStorage.setItem(KEY, JSON.stringify(settings)) } catch { /* ignore */ }
           listeners.forEach((l) => l('settings.changed', settings))
           return settings
+        case 'system.memory': return { totalMb: 16384, freeMb: 8000 }
+        case 'servers.list': return []
+        case 'versions.list': return [{ id: '1.21.4', type: 'release' }, { id: '1.21.3', type: 'release' }, { id: '1.20.6', type: 'release' }]
         case 'updater.getState': return { phase: 'uptodate', currentVersion: '0.0.0-dev' }
         case 'window.toggleMaximize': case 'window.isMaximized': return false
         default: return undefined
@@ -40,6 +44,7 @@ function browserBridge(): TrmBridge {
 
 const bridge: TrmBridge = window.trm ?? browserBridge()
 export const isElectron = !!window.trm
+export const pathForFile = (f: File): string | null => bridge.pathForFile?.(f) || null
 
 export function invoke<K extends CommandName>(command: K, ...args: CommandArgs<K> extends void ? [] : [CommandArgs<K>]): Promise<CommandResult<K>> {
   return bridge.invoke(command, args[0]) as Promise<CommandResult<K>>

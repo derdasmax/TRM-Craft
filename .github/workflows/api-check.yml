@@ -1,0 +1,28 @@
+name: API-Vertragstest
+
+# Prüft wöchentlich und bei Provider-Änderungen, ob Mojang, PaperMC und Adoptium
+# noch die Formate liefern, auf die TRM-Craft sich verlässt.
+
+on:
+  schedule:
+    - cron: '17 5 * * 1'
+  workflow_dispatch:
+  push:
+    paths:
+      - 'packages/servers/src/providers/**'
+      - 'packages/servers/src/download.ts'
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @trm/servers exec vitest run src/providers/live.test.ts
+        env:
+          LIVE_API: '1'

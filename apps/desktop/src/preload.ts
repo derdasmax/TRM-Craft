@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
 const INVOKE = 'trm:invoke'
 const EVENT = 'trm:event'
@@ -6,6 +6,8 @@ const EVENT = 'trm:event'
 // Bewusst keine Typen-Importe zur Laufzeit: Preload bleibt minimal und sandbox-tauglich.
 contextBridge.exposeInMainWorld('trm', {
   invoke: (command: string, args?: unknown) => ipcRenderer.invoke(INVOKE, command, args),
+  // Electron entfernt `File.path`; der echte Pfad kommt nur über webUtils.
+  pathForFile: (file: File) => webUtils.getPathForFile(file),
   on: (event: string, cb: (payload: unknown) => void) => {
     const handler = (_e: unknown, name: string, payload: unknown) => {
       if (name === event) cb(payload)

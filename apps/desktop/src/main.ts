@@ -7,13 +7,15 @@ import { UpdaterService } from './updater'
 import { loadGuard, saveGuard } from './guard-store'
 import { rollbackTo } from './rollback'
 import { createTray } from './tray'
-import { stopAll } from './lifecycle'
+import { registerShutdownHook, stopAll } from './lifecycle'
+import { ServerManager } from '@trm/servers'
 
 const DEV_URL = process.env.TRM_DEV_URL
 let win: BrowserWindow | null = null
 let splash: BrowserWindow | null = null
 let settings: SettingsStore
 let updater: UpdaterService
+let servers: ServerManager
 let quitting = false
 const HEALTHY_AFTER_MS = 20_000
 
@@ -58,6 +60,20 @@ const handlers: Record<CommandName, (args: any) => unknown> = {
   'updater.download': () => updater.download(),
   'updater.installNow': () => updater.installNow(),
   'updater.skipCountdown': () => updater.skipCountdown(),
+  'system.memory': () => servers.memory(),
+  'versions.list': (loader) => servers.versions(loader),
+  'servers.list': () => servers.list(),
+  'servers.create': ({ token, input }) => servers.create(token, input),
+  'servers.update': ({ id, patch }) => servers.update(id, patch),
+  'servers.start': (id) => servers.start(id),
+  'servers.stop': (id) => servers.stop(id),
+  'servers.restart': (id) => servers.restart(id),
+  'servers.kill': (id) => servers.kill(id),
+  'servers.delete': (id) => servers.remove(id),
+  'servers.command': ({ id, command }) => servers.command(id, command),
+  'servers.logs': (id) => servers.logs(id),
+  'servers.properties.get': (id) => servers.getProperties(id),
+  'servers.properties.set': ({ id, values }) => servers.setProperties(id, values),
   'shell.openExternal': (url: string) => {
     // Nur https-Links nach außen öffnen.
     if (typeof url === 'string' && url.startsWith('https://')) return shell.openExternal(url)
@@ -177,6 +193,9 @@ async function runCrashGuard(): Promise<string | undefined> {
 app.whenReady().then(async () => {
   settings = new SettingsStore(settingsFile())
   const rolledBackFrom = await runCrashGuard()
+  servers = new ServerManager({ dataDir: dataDir(), emit: (e, p) => emit(e, p) })
+  // Vor Updates/Beenden: Spieler warnen und Server sauber stoppen. Danach laufen sie von selbst wieder an.
+  registerShutdownHook({ name: 'servers', activeCount: () => servers.activeCount(), announce: (s) => servers.announce(s), stop: ({ resume }) => servers.shutdownAll(resume) })
   updater = new UpdaterService(() => settings.get(), (s) => emit('updater.state', s), rolledBackFrom)
   setupSecurity()
   registerIpc()
@@ -186,6 +205,7 @@ app.whenReady().then(async () => {
   if (rolledBackFrom && settings.get().notifications.desktop)
     new Notification({ title: 'TRM-Craft', body: `Version ${rolledBackFrom} ist abgestürzt. Die vorherige Version wurde wiederhergestellt.` }).show()
   setTimeout(() => void updater.check(), 8_000)
+  void servers.resume()
 })
 
 app.on('before-quit', (e) => {

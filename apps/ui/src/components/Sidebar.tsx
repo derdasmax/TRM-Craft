@@ -16,7 +16,7 @@ export function Sidebar() {
   return (
     <nav className="flex w-[60px] shrink-0 flex-col items-center gap-1 border-r border-line/[0.06] bg-bg py-3 lg:w-[200px] lg:items-stretch lg:px-3" aria-label="Navigation">
       {items.map((it) => {
-        const active = page === it.id
+        const active = page === it.id || (it.id === 'dashboard' && page === 'server')
         return (
           <button
             key={it.id}

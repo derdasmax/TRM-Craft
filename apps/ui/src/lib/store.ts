@@ -1,6 +1,10 @@
 import { create } from 'zustand'
-import { defaultSettings, mergeSettings, type AppInfo, type DeepPartial, type Settings, type UpdaterState } from '@trm/core'
+import { defaultSettings, mergeSettings, type AppInfo, type DeepPartial, type ProgressEvent, type ServerView, type Settings, type UpdaterState } from '@trm/core'
 import { invoke, onEvent } from './bridge'
+
+const LOG_CAP = 1500
+
+export type Page = 'dashboard' | 'settings' | 'server'
 
 interface State {
   ready: boolean
@@ -8,33 +12,72 @@ interface State {
   info: AppInfo | null
   updater: UpdaterState | null
   dismissedVersion: string | null
+  servers: Record<string, ServerView>
+  logs: Record<string, string[]>
+  progress: Record<string, ProgressEvent>
+  page: Page
+  selected: string | null
+  wizardOpen: boolean
+  toast: string | null
   dismiss: (v: string) => void
-  page: 'dashboard' | 'settings'
-  setPage: (p: State['page']) => void
+  setPage: (p: Page) => void
+  openServer: (id: string) => void
+  setWizard: (open: boolean) => void
+  notify: (msg: string) => void
   update: (patch: DeepPartial<Settings>) => Promise<void>
   init: () => Promise<void>
 }
 
-export const useStore = create<State>((set) => ({
+export const useStore = create<State>((set, get) => ({
   ready: false,
   settings: defaultSettings,
   info: null,
   updater: null,
   dismissedVersion: null,
-  dismiss: (v) => set({ dismissedVersion: v }),
+  servers: {},
+  logs: {},
+  progress: {},
   page: 'dashboard',
+  selected: null,
+  wizardOpen: false,
+  toast: null,
+  dismiss: (v) => set({ dismissedVersion: v }),
   setPage: (page) => set({ page }),
+  openServer: (id) => set({ page: 'server', selected: id }),
+  setWizard: (wizardOpen) => set({ wizardOpen }),
+  notify: (toast) => {
+    set({ toast })
+    setTimeout(() => get().toast === toast && set({ toast: null }), 5000)
+  },
   update: async (patch) => {
-    // optimistisch, dann mit Antwort des Main-Prozesses abgleichen
     set((s) => ({ settings: mergeSettings(s.settings, patch) }))
-    const next = await invoke('settings.update', patch)
-    set({ settings: next })
+    set({ settings: await invoke('settings.update', patch) })
   },
   init: async () => {
-    const [settings, info] = await Promise.all([invoke('settings.get'), invoke('app.info')])
-    const updater = await invoke('updater.getState')
-    set({ settings, info, updater, ready: true })
+    const [settings, info, updater, list] = await Promise.all([invoke('settings.get'), invoke('app.info'), invoke('updater.getState'), invoke('servers.list')])
+    set({ settings, info, updater, servers: Object.fromEntries(list.map((s) => [s.id, s])), ready: true })
     onEvent('settings.changed', (s) => set({ settings: s }))
     onEvent('updater.state', (u) => set({ updater: u }))
+    onEvent('servers.status', (v) => set((s) => ({ servers: { ...s.servers, [v.id]: v } })))
+    onEvent('servers.removed', (id) =>
+      set((s) => {
+        const { [id]: _, ...rest } = s.servers
+        return { servers: rest, page: s.selected === id ? 'dashboard' : s.page, selected: s.selected === id ? null : s.selected }
+      }),
+    )
+    onEvent('servers.log', ({ id, line }) =>
+      set((s) => {
+        const cur = s.logs[id] ?? []
+        const next = cur.length >= LOG_CAP ? [...cur.slice(cur.length - LOG_CAP + 1), line] : [...cur, line]
+        return { logs: { ...s.logs, [id]: next } }
+      }),
+    )
+    onEvent('servers.progress', (p) => set((s) => ({ progress: { ...s.progress, [p.token]: p } })))
   },
 }))
+
+/** Lädt den Log-Puffer eines Servers (beim Öffnen der Konsole). */
+export async function loadLogs(id: string) {
+  const lines = await invoke('servers.logs', id)
+  useStore.setState((s) => ({ logs: { ...s.logs, [id]: lines } }))
+}

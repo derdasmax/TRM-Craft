@@ -119,8 +119,8 @@ export class UpdaterService {
       })
     }
     this.set({ phase: 'installing', secondsLeft: undefined })
-    await stopAll()
-    // Server laufen nach dem Update wieder an (Autostart-Flag im Server-Manager, ab Meilenstein 3).
+    // resume: Die Server laufen nach dem Update-Neustart automatisch wieder an.
+    await stopAll(true)
     autoUpdater.quitAndInstall(true, true)
   }
 }
