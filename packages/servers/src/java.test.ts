@@ -52,6 +52,37 @@ describe('ensureJava', () => {
     expect(second).toBe(first)
     expect(apiCalls).toBe(1)
   })
+  it('lädt eine beschädigte Datei beim zweiten Versuch neu', async () => {
+    const good = readFileSync(zipPath)
+    const sha = createHash('sha256').update(good).digest('hex')
+    let hits = 0
+    const flaky = createServer((_, res) => res.end(++hits === 1 ? Buffer.concat([good, Buffer.alloc(16384)]) : good))
+    await new Promise<void>((r) => flaky.listen(0, '127.0.0.1', r))
+    const port = (flaky.address() as { port: number }).port
+    allowHost(`127.0.0.1:${port}`)
+    const fetchImpl: typeof fetch = async (input, init) =>
+      String(input).includes('api.adoptium.net')
+        ? new Response(JSON.stringify([{ binary: { package: { link: `http://127.0.0.1:${port}/jre.zip`, checksum: sha, name: 'jre.zip' } } }]))
+        : fetch(input, init)
+    const runtimesDir = mkdtempSync(join(tmpdir(), 'trm-rt-'))
+    try {
+      const bin = await ensureJava({ runtimesDir, major: 17, platform: 'win32', fetchImpl })
+      expect(existsSync(bin)).toBe(true)
+      expect(hits).toBe(2)
+    } finally { flaky.close() }
+  })
+  it('nutzt zwei gleichzeitige Aufrufe gemeinsam', async () => {
+    const sha = createHash('sha256').update(readFileSync(zipPath)).digest('hex')
+    let apiCalls = 0
+    const fetchImpl: typeof fetch = async (input, init) => {
+      if (String(input).includes('api.adoptium.net')) { apiCalls++; return new Response(JSON.stringify([{ binary: { package: { link: base, checksum: sha, name: 'jre.zip' } } }])) }
+      return fetch(input, init)
+    }
+    const runtimesDir = mkdtempSync(join(tmpdir(), 'trm-rt-'))
+    const [a, b] = await Promise.all([1, 2].map(() => ensureJava({ runtimesDir, major: 11, platform: 'win32', fetchImpl })))
+    expect(a).toBe(b)
+    expect(apiCalls).toBe(1)
+  })
   it('nutzt außerhalb von Windows das System-Java', async () => {
     expect(await ensureJava({ runtimesDir: tmpdir(), major: 21, platform: 'linux' })).toBe('java')
   })

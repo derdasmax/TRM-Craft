@@ -1,5 +1,6 @@
 import { extractTrusted } from './unzip'
-import { cpSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs'
+import { createReadStream, cpSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { downloadFile, type FetchLike } from './download'
 import { resolveJre } from './providers/adoptium'
@@ -23,6 +24,14 @@ function findJavaBinary(dir: string, depth = 3): string | null {
     }
   }
   return null
+}
+
+/** SHA-256 einer Datei auf der Platte. */
+export function sha256File(path: string): Promise<string> {
+  return new Promise((ok, fail) => {
+    const h = createHash('sha256')
+    createReadStream(path).on('data', (c) => h.update(c)).on('error', fail).on('end', () => ok(h.digest('hex')))
+  })
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -66,26 +75,37 @@ async function installJava(o: EnsureJavaOptions): Promise<string> {
   const asset = await resolveJre(o.major, o.fetchImpl)
   mkdirSync(o.runtimesDir, { recursive: true })
   const zip = join(o.runtimesDir, `${asset.name}.download`)
-  await downloadFile({
-    url: asset.url,
-    dest: zip,
-    sha256: asset.sha256,
-    fetchImpl: o.fetchImpl,
-    onProgress: (d, t) => o.onProgress?.(`Java ${o.major} wird geladen …`, t ? Math.round((d / t) * 100) : null),
-  })
-  o.onProgress?.(`Java ${o.major} wird entpackt …`, null)
   const tmp = `${dir}.tmp`
-  rmSync(tmp, { recursive: true, force: true })
-  try {
-    try { await extractTrusted(zip, tmp, platform) } catch (e) { throw new Error(`Java konnte nicht entpackt werden: ${(e as Error).message}`) }
-    const bin = findJavaBinary(tmp)
-    if (!bin) throw new Error('Die heruntergeladene Java-Laufzeit enthält keine java.exe.')
-    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 })
-    await moveDir(tmp, dir)
-  } finally {
+  let lastError: Error | null = null
+  // Zwei Versuche: Eine beschädigte Datei (abgebrochener oder doppelter Download) wird verworfen und neu geladen.
+  for (let attempt = 1; attempt <= 2; attempt++) {
     rmSync(zip, { force: true, maxRetries: 5, retryDelay: 300 })
     rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 })
+    try {
+      await downloadFile({
+        url: asset.url,
+        dest: zip,
+        sha256: asset.sha256,
+        fetchImpl: o.fetchImpl,
+        onProgress: (d, t) => o.onProgress?.(`Java ${o.major} wird geladen${attempt > 1 ? ' (zweiter Versuch)' : ''} …`, t ? Math.round((d / t) * 100) : null),
+      })
+      // Die Prüfsumme beim Laden gilt für die empfangenen Daten. Hier wird die Datei auf der Platte noch einmal geprüft.
+      if ((await sha256File(zip)) !== asset.sha256.toLowerCase()) throw new Error('Die gespeicherte Java-Datei ist beschädigt (Prüfsumme stimmt nicht).')
+      o.onProgress?.(`Java ${o.major} wird entpackt …`, null)
+      try { await extractTrusted(zip, tmp, platform) } catch (e) { throw new Error(`Java konnte nicht entpackt werden: ${(e as Error).message}`) }
+      if (!findJavaBinary(tmp)) throw new Error('Die heruntergeladene Java-Laufzeit enthält keine java.exe.')
+      rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 })
+      await moveDir(tmp, dir)
+      lastError = null
+      break
+    } catch (e) {
+      lastError = e as Error
+    } finally {
+      rmSync(zip, { force: true, maxRetries: 5, retryDelay: 300 })
+      rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 })
+    }
   }
+  if (lastError) throw lastError
   const final = findJavaBinary(dir)
   if (!final) throw new Error('Java konnte nicht installiert werden.')
   return final
