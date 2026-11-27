@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto'
-import { createWriteStream, mkdirSync, renameSync, rmSync } from 'node:fs'
+import { createHash, randomBytes } from 'node:crypto'
+import { createWriteStream, mkdirSync, renameSync, rmSync, statSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
@@ -47,7 +47,8 @@ export async function downloadFile(o: DownloadOptions): Promise<void> {
   if (res.url) assertAllowedUrl(res.url)
   const total = Number(res.headers.get('content-length')) || null
   mkdirSync(dirname(o.dest), { recursive: true })
-  const tmp = `${o.dest}.part`
+  // Eigener Dateiname je Download: Zwei gleichzeitige Downloads zum selben Ziel dürfen sich nicht überschreiben.
+  const tmp = `${o.dest}.${process.pid}-${randomBytes(4).toString('hex')}.part`
   const algos = (['md5', 'sha1', 'sha256', 'sha512'] as const).filter((a) => o[a])
   const hashes = algos.map((a) => ({ a, h: createHash(a) }))
   let done = 0
@@ -59,6 +60,9 @@ export async function downloadFile(o: DownloadOptions): Promise<void> {
   })
   try {
     await pipeline(src, createWriteStream(tmp))
+    const onDisk = statSync(tmp).size
+    if (onDisk !== done) throw new Error(`Die Datei wurde nicht vollständig geschrieben (${onDisk} statt ${done} Bytes).`)
+    if (total && !res.headers.get('content-encoding') && done !== total) throw new Error(`Der Download ist unvollständig (${done} von ${total} Bytes).`)
     for (const { a, h } of hashes) {
       const got = h.digest('hex')
       const want = o[a]!.toLowerCase()

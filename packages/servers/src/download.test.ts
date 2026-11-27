@@ -42,3 +42,20 @@ describe('assertAllowedUrl', () => {
     expect(() => assertAllowedUrl('http://piston-data.mojang.com/x')).toThrow()
   })
 })
+
+import { mkdtempSync as mkt, readFileSync as rf, readdirSync as rd } from 'node:fs'
+import { tmpdir as tdir } from 'node:os'
+import { join as pj } from 'node:path'
+
+describe('downloadFile: gleichzeitige Downloads', () => {
+  it('beschädigen sich nicht gegenseitig', async () => {
+    const data = Buffer.alloc(300_000, 7)
+    const make = () => (async () => new Response(new ReadableStream({ async start(c) { for (let i = 0; i < data.length; i += 50_000) { c.enqueue(data.subarray(i, i + 50_000)); await new Promise((r) => setTimeout(r, 5)) } c.close() } }), { headers: { 'content-length': String(data.length) } })) as never
+    allowHost('example.test')
+    const dir = mkt(pj(tdir(), 'trm-dl-'))
+    const dest = pj(dir, 'f.bin')
+    await Promise.all([1, 2].map(() => downloadFile({ url: 'https://github.com/x', dest, fetchImpl: make() })))
+    expect(rf(dest).length).toBe(data.length)
+    expect(rd(dir)).toEqual(['f.bin'])
+  })
+})

@@ -41,8 +41,20 @@ export async function moveDir(from: string, to: string): Promise<void> {
   try { cpSync(from, to, { recursive: true }) } catch (e) { throw new Error(`Der Ordner konnte nicht verschoben werden (${(last as Error).message}; Kopieren: ${(e as Error).message}).`) }
 }
 
-/** Liefert den Pfad zu einer passenden Java-Laufzeit und lädt sie bei Bedarf automatisch herunter. */
-export async function ensureJava(o: EnsureJavaOptions): Promise<string> {
+const running = new Map<string, Promise<string>>()
+
+/** Liefert den Pfad zu einer passenden Java-Laufzeit und lädt sie bei Bedarf automatisch herunter.
+ * Gleichzeitige Aufrufe für dieselbe Java-Version teilen sich einen Lauf (sonst schreiben zwei Downloads in dieselbe Datei). */
+export function ensureJava(o: EnsureJavaOptions): Promise<string> {
+  const key = `${o.runtimesDir}|${o.major}`
+  const cur = running.get(key)
+  if (cur) return cur
+  const p = installJava(o).finally(() => running.delete(key))
+  running.set(key, p)
+  return p
+}
+
+async function installJava(o: EnsureJavaOptions): Promise<string> {
   const platform = o.platform ?? process.platform
   // Außerhalb von Windows (Entwicklung) wird das System-Java genutzt.
   if (platform !== 'win32') return 'java'

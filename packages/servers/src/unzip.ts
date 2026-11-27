@@ -3,8 +3,8 @@ import { execFile } from 'node:child_process'
 import { mkdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-const run = (cmd: string, args: string[]) =>
-  new Promise<void>((ok, fail) => execFile(cmd, args, { windowsHide: true, timeout: 300_000, maxBuffer: 8 * 1024 * 1024 }, (e, _o, err) => (e ? fail(new Error(String(err).trim() || e.message)) : ok())))
+const run = (cmd: string, args: string[], env: NodeJS.ProcessEnv = process.env) =>
+  new Promise<void>((ok, fail) => execFile(cmd, args, { windowsHide: true, timeout: 300_000, maxBuffer: 8 * 1024 * 1024, env }, (e, _o, err) => (e ? fail(new Error(String(err).trim().split('\n')[0] || e.message)) : ok())))
 
 /**
  * Entpackt ein ZIP aus einer **vertrauenswürdigen, geprüften Quelle** (Java, Server-Software).
@@ -20,15 +20,17 @@ export async function extractTrusted(zip: string, dir: string, platform: NodeJS.
   } catch (first) {
     if (platform !== 'win32') throw first
     mkdirSync(target, { recursive: true })
+    let tarError = ''
     try {
       await run('tar.exe', ['-xf', zip, '-C', target])
       return
-    } catch { /* weiter mit PowerShell */ }
+    } catch (e) { tarError = (e as Error).message }
     try {
-      await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Expand-Archive -LiteralPath $args[0] -DestinationPath $args[1] -Force', zip, target])
+      // Pfade über die Umgebung: Mit `-Command` kommen Argumente nicht in `$args` an.
+      await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Expand-Archive -LiteralPath $env:TRM_ZIP -DestinationPath $env:TRM_DEST -Force'], { ...process.env, TRM_ZIP: zip, TRM_DEST: target })
       return
     } catch (second) {
-      throw new Error(`${(first as Error).message} (Ersatz-Entpacker: ${(second as Error).message})`)
+      throw new Error(`${(first as Error).message} (tar: ${tarError}; PowerShell: ${(second as Error).message})`)
     }
   }
 }
