@@ -4,7 +4,7 @@ import type { DeviceInfo, RemoteStatus, UploadRecord } from './remote'
 import type { CloudflareStatus, DomainConfig, FirewallStatus, JoinInfo, NetInfo, ReachResult, TunnelState, UpnpStatus } from './net'
 import type { BackupInfo, FileContent, FileEntry, PlayerAction, PlayerEntry, ScheduleTask, StatsSample, WorldInfo } from './ops'
 import type { InstalledMod, ModInstallResult, ModpackInstallArgs, ModSearchArgs, ModSearchResult, ModSource, ModUpdate } from './mods'
-import type { ImportServerInput, SoftwareStatus, CreateServerInput, LogEvent, ProgressEvent, ServerRecord, ServerView, SystemMemory, Loader, VersionInfo } from './servers'
+import type { ImportServerInput, SoftwareStatus, CreateServerInput, LogEvent, ProgressEvent, ServerRecord, ServerView, SystemMemory, SystemUsage, Loader, VersionInfo } from './servers'
 
 /**
  * Einheitliche Command-API. UI (IPC) und später die Webseite (WebSocket)
@@ -264,5 +264,6 @@ export interface AppEvents {
   'net.tunnel': TunnelState
   'remote.status': RemoteStatus
   'remote.upload': UploadRecord
+  'system.usage': SystemUsage
 }
 export type EventName = keyof AppEvents

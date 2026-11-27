@@ -16,6 +16,21 @@ function Logo() {
   )
 }
 
+/** CPU- und RAM-Auslastung des PCs. */
+function UsageMeter() {
+  const u = useStore((s) => s.usage)
+  if (!u) return null
+  const gb = (mb: number) => (mb / 1024).toFixed(1)
+  const hot = (v: number) => (v >= 90 ? 'text-danger' : v >= 75 ? 'text-warn' : 'text-fg')
+  const ramPct = Math.round((u.ramUsedMb / u.ramTotalMb) * 100)
+  return (
+    <div className="ml-4 flex items-center gap-3 text-[11.5px] tabular-nums text-muted" role="status" aria-label={`CPU ${u.cpu}%, RAM ${ramPct}%`}>
+      <span>CPU <b className={`font-medium ${hot(u.cpu)}`}>{u.cpu}%</b></span>
+      <span>RAM <b className={`font-medium ${hot(ramPct)}`}>{gb(u.ramUsedMb)}</b>/{gb(u.ramTotalMb)} GB</span>
+    </div>
+  )
+}
+
 /** „Fernzugriff aktiv“ in der Titelleiste, solange die API läuft. Warnfarbe, wenn der Tunnel getrennt ist. */
 function RemoteBadge() {
   const t = useT()
@@ -46,6 +61,7 @@ export function TitleBar() {
         <Logo />
         <span className="font-display text-[12px] font-semibold tracking-[0.16em]">TRM-CRAFT</span>
         <RemoteBadge />
+        <UsageMeter />
       </div>
       <div className="flex h-full" onDoubleClick={(e) => e.stopPropagation()}>
         <button className={btn} aria-label={t('win.minimize')} onClick={() => invoke('window.minimize')}><Minus size={15} strokeWidth={1.75} /></button>

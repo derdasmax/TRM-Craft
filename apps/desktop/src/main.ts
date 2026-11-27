@@ -12,6 +12,7 @@ import { Notifier } from './notifier'
 import type { ServerSummary, UploadServer } from '@trm/remote'
 import { commandRoles } from '@trm/core'
 import { RemoteHost } from './remote-host'
+import { startUsageSampler } from './usage'
 import { join } from 'node:path'
 import { SecretStore } from './secrets'
 
@@ -26,6 +27,7 @@ let scheduler: Scheduler
 let notifier: Notifier
 let ddns: Ddns
 let remote: RemoteHost
+let stopUsage: (() => void) | null = null
 const eventPrev = new Map<string, { status: ServerView['status']; players: string[] }>()
 let tunnel: PlayitTunnel
 const upnp = new UpnpClient()
@@ -450,6 +452,7 @@ app.whenReady().then(async () => {
   ddns.start()
   void remote.apply()
   scheduler.start()
+  stopUsage = startUsageSampler((u) => emit('system.usage', u))
 })
 
 app.on('before-quit', (e) => {
@@ -460,6 +463,7 @@ app.on('before-quit', (e) => {
   servers?.stopMonitoring()
   ddns?.stop()
   void remote?.shutdown()
+  stopUsage?.()
   tunnel?.stop()
   // Server sauber stoppen, dann endgültig beenden.
   Promise.all([stopAll(), upnpCleanup()]).finally(() => app.quit())

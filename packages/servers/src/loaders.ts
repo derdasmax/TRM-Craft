@@ -43,6 +43,8 @@ const JAR: Launch = { type: 'jar', jar: 'server.jar' }
 const mcJava = async (mc: string, f?: FetchLike) => (await resolveVanilla(mc, f).then((r) => r.javaMajor).catch(() => null)) ?? javaForMinecraft(mc)
 const dlProgress = (c: InstallCtx, label: string) => (d: number, t: number | null) => c.progress(label, t ? Math.round((d / t) * 100) : null)
 const mcVersions = async (f?: FetchLike) => listFromManifest(await fetchManifest(f))
+/** Vanilla: auch Snapshots (die Oberfläche blendet sie standardmäßig aus). */
+const mcVersionsWithSnapshots = async (f?: FetchLike) => listFromManifest(await fetchManifest(f), true)
 
 function findJar(dir: string, pick: (name: string) => boolean): string | null {
   if (!existsSync(dir)) return null
@@ -99,7 +101,7 @@ export const LOADER_DEFS: Record<Loader, LoaderDef> = {
     },
   },
   vanilla: {
-    versions: mcVersions,
+    versions: mcVersionsWithSnapshots,
     javaMajor: mcJava,
     async install(c) {
       const v = await resolveVanilla(c.version, c.fetchImpl)

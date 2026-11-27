@@ -49,6 +49,7 @@ export function Wizard() {
   const [versions, setVersions] = useState<VersionInfo[] | null>(null)
   const [vError, setVError] = useState(false)
   const [query, setQuery] = useState('')
+  const [snaps, setSnaps] = useState(false)
   const [mem, setMem] = useState<SystemMemory | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const set = (p: Partial<Draft>) => setD((x) => ({ ...x, ...p }))
@@ -56,10 +57,11 @@ export function Wizard() {
   useEffect(() => { invoke('system.memory').then((m) => { setMem(m); setD((x) => ({ ...x, ramMb: recommendRamMb(m.totalMb) })) }) }, [])
   useEffect(() => {
     setVersions(null); setVError(false); setQuery('')
-    invoke('versions.list', d.loader).then((v) => { setVersions(v); setD((x) => (v.some((i) => i.id === x.mcVersion) ? x : { ...x, mcVersion: v[0]?.id ?? '' })) }).catch(() => setVError(true))
+    invoke('versions.list', d.loader).then((v) => { setVersions(v); setD((x) => (v.some((i) => i.id === x.mcVersion) ? x : { ...x, mcVersion: (v.find((i) => i.type === 'release') ?? v[0])?.id ?? '' })) }).catch(() => setVError(true))
   }, [d.loader])
 
-  const shown = useMemo(() => (versions ?? []).filter((v) => v.id.includes(query.trim())).slice(0, 80), [versions, query])
+  const shown = useMemo(() => (versions ?? []).filter((v) => (snaps || v.type !== 'snapshot') && v.id.includes(query.trim())), [versions, query, snaps])
+  const hasSnaps = useMemo(() => (versions ?? []).some((v) => v.type === 'snapshot'), [versions])
   const info = LOADER_INFO[d.loader]
   const proxy = info.proxy
   const bedrock = info.edition === 'bedrock'
@@ -137,6 +139,10 @@ export function Wizard() {
               {key === 'version' && (
                 <div>
                   <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('wiz.version.search')} aria-label={t('wiz.version.search')} className={field} />
+                  <div className="mt-2 flex items-center justify-between text-[12px] text-muted">
+                    <span>{t('wiz.version.count', { n: shown.length })}</span>
+                    {hasSnaps && <label className="flex items-center gap-2">{t('wiz.version.snaps')}<Switch label={t('wiz.version.snaps')} checked={snaps} onChange={setSnaps} /></label>}
+                  </div>
                   <div className="mt-3 grid max-h-[300px] grid-cols-3 gap-2 overflow-y-auto sm:grid-cols-4">
                     {vError ? <p className="col-span-full text-[13px] text-danger">{t('wiz.version.error')}</p> : versions === null ? <p className="col-span-full text-[13px] text-muted">{t('wiz.version.loading')}</p> : shown.map((v) => (
                       <button key={v.id} onClick={() => set({ mcVersion: v.id })} aria-pressed={d.mcVersion === v.id} className={clsx('no-drag h-9 rounded-ctl font-mono text-[12.5px] transition-[transform,background-color] duration-150 active:scale-[0.96]', d.mcVersion === v.id ? 'bg-accent text-accent-fg' : 'hairline bg-raised/40 hover:bg-raised')}>{v.id}</button>

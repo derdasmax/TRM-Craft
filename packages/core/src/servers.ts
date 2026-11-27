@@ -139,6 +139,14 @@ export interface LogEvent {
   line: string
 }
 
+/** Auslastung des ganzen PCs (Titelleiste). */
+export interface SystemUsage {
+  /** 0–100 */
+  cpu: number
+  ramUsedMb: number
+  ramTotalMb: number
+}
+
 export interface SystemMemory {
   totalMb: number
   freeMb: number
