@@ -103,3 +103,16 @@ describe('moveDir', () => {
     expect(ex(jn(base, 'a'))).toBe(false)
   })
 })
+
+import { findSystemJava, parseJavaMajor } from './java'
+
+describe('Vorhandenes Java', () => {
+  it('erkennt die Hauptversion', () => {
+    expect(parseJavaMajor('openjdk version "21.0.1" 2023-10-17')).toBe(21)
+    expect(parseJavaMajor('java version "1.8.0_402"')).toBe(8)
+    expect(parseJavaMajor('nichts')).toBeNull()
+  })
+  it('liefert null, wenn keins gefunden wird', async () => {
+    expect(await findSystemJava(999, 'linux', { PATH: '' })).toBeNull()
+  })
+})

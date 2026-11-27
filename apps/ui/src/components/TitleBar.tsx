@@ -16,6 +16,22 @@ function Logo() {
   )
 }
 
+/** Kleine Fortschrittsanzeige, solange ein Update im Hintergrund lädt. */
+function UpdatePill() {
+  const t = useT()
+  const u = useStore((s) => s.updater)
+  const dismissed = useStore((s) => s.dismissedVersion)
+  const show = useStore((s) => s.dismiss)
+  if (u?.phase !== 'downloading' || !u.version || dismissed !== u.version) return null
+  const p = Math.round(u.percent ?? 0)
+  return (
+    <button onClick={() => show('')} title={t('upd.title.downloading')} className="no-drag relative ml-4 inline-flex h-6 items-center gap-2 overflow-hidden rounded-full bg-raised/70 px-3 text-[11.5px] text-fg">
+      <span className="absolute inset-y-0 left-0 bg-accent/25 transition-[width] duration-500" style={{ width: `${p}%` }} />
+      <span className="relative tabular-nums">{t('upd.pill', { p })}</span>
+    </button>
+  )
+}
+
 /** CPU- und RAM-Auslastung des PCs. */
 function UsageMeter() {
   const u = useStore((s) => s.usage)
@@ -61,6 +77,7 @@ export function TitleBar() {
         <Logo />
         <span className="font-display text-[12px] font-semibold tracking-[0.16em]">TRM-CRAFT</span>
         <RemoteBadge />
+        <UpdatePill />
         <UsageMeter />
       </div>
       <div className="flex h-full" onDoubleClick={(e) => e.stopPropagation()}>

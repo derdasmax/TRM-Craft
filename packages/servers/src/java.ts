@@ -1,5 +1,6 @@
 import { extractTrusted } from './unzip'
 import { createReadStream, cpSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs'
+import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { downloadFile, type FetchLike } from './download'
@@ -50,6 +51,27 @@ export async function moveDir(from: string, to: string): Promise<void> {
   try { cpSync(from, to, { recursive: true }) } catch (e) { throw new Error(`Der Ordner konnte nicht verschoben werden (${(last as Error).message}; Kopieren: ${(e as Error).message}).`) }
 }
 
+/** Hauptversion aus der Ausgabe von `java -version` (z. B. `"21.0.1"` oder `"1.8.0_402"`). */
+export function parseJavaMajor(out: string): number | null {
+  const m = /version "(\d+)(?:\.(\d+))?/.exec(out)
+  if (!m) return null
+  const a = Number(m[1])
+  return a === 1 ? Number(m[2] ?? 0) : a
+}
+
+/** Sucht ein installiertes Java, das mindestens `major` ist (JAVA_HOME, dann PATH). */
+export async function findSystemJava(major: number, platform: NodeJS.Platform = process.platform, env: NodeJS.ProcessEnv = process.env): Promise<{ path: string; version: number } | null> {
+  const exe = platform === 'win32' ? 'java.exe' : 'java'
+  const candidates = [env.JAVA_HOME ? join(env.JAVA_HOME, 'bin', exe) : '', 'java'].filter(Boolean)
+  for (const c of candidates) {
+    if (c !== 'java' && !existsSync(c)) continue
+    const out = await new Promise<string>((ok) => execFile(c, ['-version'], { timeout: 8000, windowsHide: true }, (_e, so, se) => ok(`${se}${so}`)))
+    const v = parseJavaMajor(out)
+    if (v !== null && v >= major) return { path: c, version: v }
+  }
+  return null
+}
+
 const running = new Map<string, Promise<string>>()
 
 /** Liefert den Pfad zu einer passenden Java-Laufzeit und lädt sie bei Bedarf automatisch herunter.
@@ -74,7 +96,8 @@ async function installJava(o: EnsureJavaOptions): Promise<string> {
   o.onProgress?.(`Java ${o.major} wird gesucht …`, null)
   const asset = await resolveJre(o.major, o.fetchImpl)
   mkdirSync(o.runtimesDir, { recursive: true })
-  const zip = join(o.runtimesDir, `${asset.name}.download`)
+  // Endung `.zip` ist nötig: PowerShell Expand-Archive nimmt nur .zip-Dateien an.
+  const zip = join(o.runtimesDir, `dl-${process.pid}-${asset.name.replace(/[^\w.-]/g, '_')}${/\.zip$/i.test(asset.name) ? '' : '.zip'}`)
   const tmp = `${dir}.tmp`
   let lastError: Error | null = null
   // Zwei Versuche: Eine beschädigte Datei (abgebrochener oder doppelter Download) wird verworfen und neu geladen.
@@ -105,7 +128,15 @@ async function installJava(o: EnsureJavaOptions): Promise<string> {
       rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 })
     }
   }
-  if (lastError) throw lastError
+  if (lastError) {
+    // Ausweg: ein bereits installiertes Java, das neu genug ist.
+    const own = await findSystemJava(o.major, platform)
+    if (own) {
+      o.onProgress?.(`Vorhandenes Java wird genutzt (${own.version}).`, null)
+      return own.path
+    }
+    throw new Error(`${lastError.message} (Ein passendes Java ist auf diesem PC nicht installiert. Du kannst Java ${o.major} oder neuer selbst installieren, z. B. von adoptium.net.)`)
+  }
   const final = findJavaBinary(dir)
   if (!final) throw new Error('Java konnte nicht installiert werden.')
   return final

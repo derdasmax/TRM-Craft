@@ -1,8 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto'
-import { createWriteStream, mkdirSync, renameSync, rmSync, statSync } from 'node:fs'
+import { createReadStream, mkdirSync, renameSync, rmSync, statSync } from 'node:fs'
+import { open } from 'node:fs/promises'
 import { dirname } from 'node:path'
-import { Readable } from 'node:stream'
-import { pipeline } from 'node:stream/promises'
 
 export type FetchLike = typeof fetch
 
@@ -50,23 +49,33 @@ export async function downloadFile(o: DownloadOptions): Promise<void> {
   // Eigener Dateiname je Download: Zwei gleichzeitige Downloads zum selben Ziel dürfen sich nicht überschreiben.
   const tmp = `${o.dest}.${process.pid}-${randomBytes(4).toString('hex')}.part`
   const algos = (['md5', 'sha1', 'sha256', 'sha512'] as const).filter((a) => o[a])
-  const hashes = algos.map((a) => ({ a, h: createHash(a) }))
   let done = 0
-  const src = Readable.fromWeb(res.body as never)
-  src.on('data', (c: Buffer) => {
-    done += c.length
-    for (const { h } of hashes) h.update(c)
-    o.onProgress?.(done, total)
-  })
   try {
-    await pipeline(src, createWriteStream(tmp))
+    // Bewusst ohne Stream-Verkettung: Jeder Block wird einzeln und der Reihe nach geschrieben.
+    // Die Prüfsumme wird danach von der Datei auf der Platte gebildet, nicht aus dem Datenstrom.
+    const fh = await open(tmp, 'w')
+    try {
+      for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
+        let off = 0
+        while (off < chunk.length) off += (await fh.write(chunk, off, chunk.length - off)).bytesWritten
+        done += chunk.length
+        o.onProgress?.(done, total)
+      }
+      await fh.sync().catch(() => {})
+    } finally {
+      await fh.close()
+    }
     const onDisk = statSync(tmp).size
     if (onDisk !== done) throw new Error(`Die Datei wurde nicht vollständig geschrieben (${onDisk} statt ${done} Bytes).`)
     if (total && !res.headers.get('content-encoding') && done !== total) throw new Error(`Der Download ist unvollständig (${done} von ${total} Bytes).`)
-    for (const { a, h } of hashes) {
-      const got = h.digest('hex')
-      const want = o[a]!.toLowerCase()
-      if (got !== want && Buffer.from(got, 'hex').toString('base64') !== o[a]) throw new Error(`Prüfsumme (${a}) stimmt nicht überein`)
+    if (algos.length) {
+      const hashes = algos.map((a) => ({ a, h: createHash(a) }))
+      await new Promise<void>((ok, fail) => createReadStream(tmp).on('data', (c) => { for (const { h } of hashes) h.update(c) }).on('error', fail).on('end', ok))
+      for (const { a, h } of hashes) {
+        const got = h.digest('hex')
+        const want = o[a]!.toLowerCase()
+        if (got !== want && Buffer.from(got, 'hex').toString('base64') !== o[a]) throw new Error(`Prüfsumme (${a}) stimmt nicht überein`)
+      }
     }
     renameSync(tmp, o.dest)
   } catch (e) {
