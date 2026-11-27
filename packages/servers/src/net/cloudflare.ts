@@ -21,7 +21,7 @@ export class Cloudflare {
     const res = await this.f(url, { method, headers: { authorization: `Bearer ${this.token}`, 'content-type': 'application/json', accept: 'application/json' }, body: body ? JSON.stringify(body) : undefined })
     const env = Envelope.safeParse(await res.json().catch(() => ({})))
     if (!env.success || !env.data.success) {
-      if (res.status === 401 || res.status === 403) throw new Error('Cloudflare hat den Token abgelehnt. Er braucht die Berechtigungen „Zone: DNS: Bearbeiten“, „Konto: Cloudflare Tunnel: Bearbeiten“ und „Konto: Kontoeinstellungen: Lesen“.')
+      if (res.status === 401 || res.status === 403) throw new Error(`Cloudflare hat den Token abgelehnt (${path.split('?')[0]}). Er braucht die Berechtigungen „Zone: DNS: Bearbeiten“, „Konto: Cloudflare Tunnel: Bearbeiten“ und „Konto: Kontoeinstellungen: Lesen“.`)
       throw new Error(env.success ? (env.data.errors[0]?.message ?? `Cloudflare-Fehler (${res.status})`) : `Cloudflare-Fehler (${res.status})`)
     }
     return schema.parse(env.data.result)

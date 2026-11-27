@@ -32,7 +32,7 @@ export async function setupTunnel(cf: Cloudflare, o: { domain: string; sub: stri
   if (!sub || !validLabel(sub)) throw new Error('Ungültiger Name vor der Domain (nur a–z, 0–9 und -).')
   const host = joinHost(sub, domain)
   log('Prüfe Cloudflare-Zugang …')
-  await cf.verify()
+  // Kein verify(): Konto-Tokens lehnen den Benutzer-Endpunkt ab. Ein ungültiger Token fällt gleich bei der Zonen-Abfrage auf.
   const zone = await cf.zone(domain)
   log(`Domain ${domain} gefunden.`)
   const tunnelId = (await cf.findTunnel(zone.account, TUNNEL_NAME)) ?? (await cf.createTunnel(zone.account, TUNNEL_NAME))
