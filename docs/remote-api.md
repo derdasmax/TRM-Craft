@@ -27,7 +27,7 @@ solange der Server läuft. In den Einstellungen siehst du Tunnelstatus, Adresse,
 
 ### Einrichtung des Tunnels (Assistent in der App)
 
-*Einstellungen → Netzwerk:* Cloudflare-API-Token speichern (Rechte: **Konto → Cloudflare Tunnel: Bearbeiten**, **Zone → DNS: Bearbeiten**, **Konto: Lesen**).
+*Einstellungen → Fernzugriff → Cloudflare-Tunnel:* Cloudflare-API-Token speichern (Rechte: **Konto → Cloudflare Tunnel: Bearbeiten**, **Zone → DNS: Bearbeiten**, **Konto: Lesen**).
 *Einstellungen → Fernzugriff → Cloudflare-Tunnel:* Domain und Namen (z. B. `craft` + `meinedomain.de`) eingeben und **Tunnel einrichten**. Die App
 
 1. prüft den Token und findet die Zone der Domain,

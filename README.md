@@ -133,7 +133,7 @@ Im Server-Tab **Netzwerk**:
 Alles läuft auf deinem Laptop, es gibt **keinen externen Server**. Die App bringt eine eigene Remote-API mit (HTTPS-REST + WebSocket), die nur
 auf `127.0.0.1` lauscht. Deine TRM-Webseite spricht über einen **Cloudflare Tunnel** (`cloudflared`, kostenlos) mit ihr.
 
-1. *Einstellungen → Netzwerk:* Cloudflare-API-Token speichern (Rechte: Konto → Cloudflare Tunnel: Bearbeiten, Zone → DNS: Bearbeiten, Konto: Lesen).
+1. *Einstellungen → Fernzugriff → Cloudflare-Tunnel:* Cloudflare-API-Token speichern (Rechte: Konto → Cloudflare Tunnel: Bearbeiten, Zone → DNS: Bearbeiten, Konto: Lesen).
 2. *Einstellungen → Fernzugriff:* einschalten, bei **Erlaubte Webseiten** deine TRM-Adresse eintragen (z. B. `https://trm.<deine-domain>`, nur diese Origin darf die API im Browser aufrufen).
 3. **Tunnel einrichten:** Domain und Name eingeben (z. B. `craft` + `<deine-domain>`). Der Assistent legt Tunnel, Weiterleitung und DNS-Eintrag an, lädt `cloudflared`
    und startet ihn. Optional als **Windows-Dienst** (UAC-Abfrage), damit er auch ohne die App läuft.

@@ -1,5 +1,5 @@
 import { Trash2, Undo2 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import clsx from 'clsx'
 import { Button, Row, Section, Segmented, Switch } from './ui'
 import { act } from '../lib/act'
@@ -28,6 +28,9 @@ export function RemoteSection() {
   const [siteUrl, setSiteUrl] = useState('')
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
+  const [hasToken, setHasToken] = useState(false)
+  const [token, setToken] = useState('')
+  useEffect(() => { invoke('secrets.has', 'cloudflare').then(setHasToken).catch(() => {}) }, [])
   const tun = st?.tunnel
 
   const addOrigin = () => {
@@ -69,6 +72,12 @@ export function RemoteSection() {
       {s.mode === 'tunnel' ? (
         <Section title={t('rm.tunnel.title')}>
           <div className="pb-1 pt-3 text-[12px] text-muted">{t('rm.tunnel.hint')}</div>
+          <Row title={t('rm.cf.token')} hint={hasToken ? t('rm.cf.saved') : t('rm.cf.hint')}>
+            <div className="flex gap-2">
+              <input type="password" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" placeholder={hasToken ? '••••••••' : ''} aria-label={t('rm.cf.token')} className={clsx(field, 'w-64 font-mono')} />
+              <Button disabled={!token.trim()} onClick={async () => { if (await act(async () => { await invoke('secrets.set', { name: 'cloudflare', value: token }); return true })) { setToken(''); setHasToken(true); notify(t('rm.cf.saved')) } }}>{t('rm.cf.save')}</Button>
+            </div>
+          </Row>
           {tun?.host ? (
             <>
               <Row title={t('rm.tunnel.addr')}><span className="select-text font-mono text-[12.5px]">{tun.host}</span></Row>
