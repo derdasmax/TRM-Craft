@@ -90,13 +90,29 @@ export const useStore = create<State>((set, get) => ({
         return { servers: rest, page: s.selected === id ? 'dashboard' : s.page, selected: s.selected === id ? null : s.selected }
       }),
     )
-    onEvent('servers.log', ({ id, line }) =>
+    // Konsolenzeilen werden gesammelt und alle 100 ms in einem Schritt eingefügt. Das spart bei vielen Zeilen (Serverstart) Rechenzeit.
+    const pending = new Map<string, string[]>()
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const flush = () => {
+      timer = null
+      const batch = [...pending]
+      pending.clear()
       set((s) => {
-        const cur = s.logs[id] ?? []
-        const next = cur.length >= LOG_CAP ? [...cur.slice(cur.length - LOG_CAP + 1), line] : [...cur, line]
-        return { logs: { ...s.logs, [id]: next } }
-      }),
-    )
+        const logs = { ...s.logs }
+        for (const [id, add] of batch) {
+          const cur = logs[id] ?? []
+          const all = cur.length + add.length > LOG_CAP ? [...cur, ...add].slice(-LOG_CAP) : [...cur, ...add]
+          logs[id] = all
+        }
+        return { logs }
+      })
+    }
+    onEvent('servers.log', ({ id, line }) => {
+      const list = pending.get(id) ?? []
+      list.push(line)
+      pending.set(id, list)
+      if (!timer) timer = setTimeout(flush, 100)
+    })
     onEvent('servers.stats', ({ id, sample }) => set((s) => ({ stats: { ...s.stats, [id]: [...(s.stats[id] ?? []).slice(-359), sample] } })))
     onEvent('net.tunnel', (tunnel) => set({ tunnel }))
     invoke('net.tunnel.state').then((tunnel) => set({ tunnel })).catch(() => {})

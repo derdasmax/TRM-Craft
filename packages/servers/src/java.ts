@@ -1,5 +1,5 @@
-import extract from 'extract-zip'
-import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs'
+import { extractTrusted } from './unzip'
+import { cpSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { downloadFile, type FetchLike } from './download'
 import { resolveJre } from './providers/adoptium'
@@ -23,6 +23,22 @@ function findJavaBinary(dir: string, depth = 3): string | null {
     }
   }
   return null
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+/** Verschiebt einen Ordner. Unter Windows scheitert `rename` oft mit EPERM/EBUSY/EACCES, solange Virenscanner oder Indexer die frisch entpackten Dateien prüfen. Deshalb mehrere Versuche, zuletzt Kopieren. */
+export async function moveDir(from: string, to: string): Promise<void> {
+  let last: unknown
+  for (let i = 0; i < 6; i++) {
+    try { renameSync(from, to); return } catch (e) {
+      last = e
+      const code = (e as NodeJS.ErrnoException).code
+      if (code !== 'EPERM' && code !== 'EBUSY' && code !== 'EACCES' && code !== 'ENOTEMPTY') throw e
+      await sleep(400 * (i + 1))
+    }
+  }
+  try { cpSync(from, to, { recursive: true }) } catch (e) { throw new Error(`Der Ordner konnte nicht verschoben werden (${(last as Error).message}; Kopieren: ${(e as Error).message}).`) }
 }
 
 /** Liefert den Pfad zu einer passenden Java-Laufzeit und lädt sie bei Bedarf automatisch herunter. */
@@ -49,14 +65,14 @@ export async function ensureJava(o: EnsureJavaOptions): Promise<string> {
   const tmp = `${dir}.tmp`
   rmSync(tmp, { recursive: true, force: true })
   try {
-    await extract(zip, { dir: tmp })
+    try { await extractTrusted(zip, tmp, platform) } catch (e) { throw new Error(`Java konnte nicht entpackt werden: ${(e as Error).message}`) }
     const bin = findJavaBinary(tmp)
     if (!bin) throw new Error('Die heruntergeladene Java-Laufzeit enthält keine java.exe.')
-    rmSync(dir, { recursive: true, force: true })
-    renameSync(tmp, dir)
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 })
+    await moveDir(tmp, dir)
   } finally {
-    rmSync(zip, { force: true })
-    rmSync(tmp, { recursive: true, force: true })
+    rmSync(zip, { force: true, maxRetries: 5, retryDelay: 300 })
+    rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 })
   }
   const final = findJavaBinary(dir)
   if (!final) throw new Error('Java konnte nicht installiert werden.')

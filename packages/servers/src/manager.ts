@@ -1,4 +1,4 @@
-import extract from 'extract-zip'
+import { extractTrusted } from './unzip'
 import { randomBytes } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
@@ -214,7 +214,7 @@ export class ServerManager {
         : ''
       const result = await defs[input.loader].install({
         dir, version: input.mcVersion, loaderVersion: input.loaderVersion, java, platform: this.d.platform ?? process.platform, fetchImpl: this.d.fetchImpl,
-        download: this.d.downloadImpl ?? downloadFile, run: this.d.installerRunner ?? runInstaller, extract: (zip, to) => extract(zip, { dir: to }), progress,
+        download: this.d.downloadImpl ?? downloadFile, run: this.d.installerRunner ?? runInstaller, extract: (zip, to) => extractTrusted(zip, to, this.d.platform), progress,
       })
       if (info.extFolder) mkdirSync(join(dir, info.extFolder), { recursive: true })
 
@@ -438,7 +438,7 @@ export class ServerManager {
     await this.backupCreate(id, 'vor-update')
     const tmp = mkdtempSync(join(dir, '.trm-sw-'))
     try {
-      const res = await def.install({ dir: tmp, version: r.mcVersion, java: '', platform: this.d.platform ?? process.platform, fetchImpl: this.d.fetchImpl, download: this.d.downloadImpl ?? downloadFile, run: this.d.installerRunner ?? runInstaller, extract: (zip, to) => extract(zip, { dir: to }), progress: (label, percent) => this.d.emit('servers.progress', { token: `update-${id}`, label, percent }) })
+      const res = await def.install({ dir: tmp, version: r.mcVersion, java: '', platform: this.d.platform ?? process.platform, fetchImpl: this.d.fetchImpl, download: this.d.downloadImpl ?? downloadFile, run: this.d.installerRunner ?? runInstaller, extract: (zip, to) => extractTrusted(zip, to, this.d.platform), progress: (label, percent) => this.d.emit('servers.progress', { token: `update-${id}`, label, percent }) })
       if (res.launch.type !== 'jar') throw new Error('Unerwartetes Ergebnis.')
       mkdirSync(join(dir, '.trm'), { recursive: true })
       if (existsSync(join(dir, 'server.jar'))) renameSync(join(dir, 'server.jar'), join(dir, '.trm', 'server.jar.alt'))

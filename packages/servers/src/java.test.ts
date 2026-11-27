@@ -56,3 +56,19 @@ describe('ensureJava', () => {
     expect(await ensureJava({ runtimesDir: tmpdir(), major: 21, platform: 'linux' })).toBe('java')
   })
 })
+
+import { mkdtempSync as mk, mkdirSync as md, writeFileSync as wf, existsSync as ex } from 'node:fs'
+import { tmpdir as td } from 'node:os'
+import { join as jn } from 'node:path'
+import { moveDir } from './java'
+
+describe('moveDir', () => {
+  it('verschiebt einen Ordner samt Inhalt', async () => {
+    const base = mk(jn(td(), 'trm-mv-'))
+    md(jn(base, 'a', 'bin'), { recursive: true })
+    wf(jn(base, 'a', 'bin', 'java.exe'), 'x')
+    await moveDir(jn(base, 'a'), jn(base, 'b'))
+    expect(ex(jn(base, 'b', 'bin', 'java.exe'))).toBe(true)
+    expect(ex(jn(base, 'a'))).toBe(false)
+  })
+})

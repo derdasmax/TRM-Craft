@@ -452,7 +452,7 @@ app.whenReady().then(async () => {
   ddns.start()
   void remote.apply()
   scheduler.start()
-  stopUsage = startUsageSampler((u) => emit('system.usage', u))
+  stopUsage = startUsageSampler((u) => { if (win && win.isVisible() && !win.isMinimized()) emit('system.usage', u) })
 })
 
 app.on('before-quit', (e) => {
