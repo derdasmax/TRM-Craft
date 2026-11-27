@@ -148,6 +148,7 @@ Die App stellt **keine** Zertifikate automatisch aus.
   (`UPDATE_SCHEMA=1 pnpm test` erzeugt es neu; ein Test sorgt dafür, dass es nicht veraltet).
 - `scripts/demo-site.mjs` spielt den Ablauf einer Webseite nach (Kopplung, Sitzung, Befehle, WebSocket, Upload).
 - Der Fernzugriff ist **standardmäßig aus**.
+- Den Cloudflare-Token trägst du direkt im Fernzugriff-Bereich beim Tunnel-Assistenten ein (er wird verschlüsselt gespeichert).
 
 ## Sicherheit
 
