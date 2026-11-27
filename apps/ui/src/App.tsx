@@ -1,3 +1,4 @@
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { AnimatePresence, MotionConfig, motion } from 'framer-motion'
 import { useEffect } from 'react'
 import { Onboarding } from './components/Onboarding'
@@ -68,7 +69,7 @@ export default function App() {
         </div>
         <AnimatePresence>{!onboardingDone && <Onboarding />}</AnimatePresence>
         {onboardingDone && <UpdateDialog />}
-        <Suspense fallback={null}><AnimatePresence>{wizardOpen && <Wizard />}</AnimatePresence>
+        <Suspense fallback={null}><ErrorBoundary onClose={() => useStore.getState().setWizard(false)}><AnimatePresence>{wizardOpen && <Wizard />}</AnimatePresence></ErrorBoundary>
         {paletteOpen && <CommandPalette />}</Suspense>
         <AnimatePresence>
           {toast && (

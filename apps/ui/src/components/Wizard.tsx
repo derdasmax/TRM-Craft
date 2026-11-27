@@ -47,7 +47,8 @@ export function Wizard() {
   const [step, setStep] = useState(0)
   const [d, setD] = useState<Draft>({ edition: 'java', crossplay: false, loader: 'paper', mcVersion: '', name: '', motd: '', gamemode: 'survival', difficulty: 'normal', maxPlayers: 20, ramMb: 4096, worldMode: 'new', seed: '', worldZip: null, eula: false })
   const [versions, setVersions] = useState<VersionInfo[] | null>(null)
-  const [vError, setVError] = useState(false)
+  const [vError, setVError] = useState<string | false>(false)
+  const [reload, setReload] = useState(0)
   const [query, setQuery] = useState('')
   const [snaps, setSnaps] = useState(false)
   const [mem, setMem] = useState<SystemMemory | null>(null)
@@ -57,8 +58,8 @@ export function Wizard() {
   useEffect(() => { invoke('system.memory').then((m) => { setMem(m); setD((x) => ({ ...x, ramMb: recommendRamMb(m.totalMb) })) }) }, [])
   useEffect(() => {
     setVersions(null); setVError(false); setQuery('')
-    invoke('versions.list', d.loader).then((v) => { setVersions(v); setD((x) => (v.some((i) => i.id === x.mcVersion) ? x : { ...x, mcVersion: (v.find((i) => i.type === 'release') ?? v[0])?.id ?? '' })) }).catch(() => setVError(true))
-  }, [d.loader])
+    invoke('versions.list', d.loader).then((v) => { setVersions(v); setD((x) => (v.some((i) => i.id === x.mcVersion) ? x : { ...x, mcVersion: (v.find((i) => i.type === 'release') ?? v[0])?.id ?? '' })) }).catch((e: unknown) => setVError(e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') || 'Unbekannter Fehler' : 'Unbekannter Fehler'))
+  }, [d.loader, reload])
 
   const shown = useMemo(() => (versions ?? []).filter((v) => (snaps || v.type !== 'snapshot') && v.id.includes(query.trim())), [versions, query, snaps])
   const hasSnaps = useMemo(() => (versions ?? []).some((v) => v.type === 'snapshot'), [versions])
@@ -144,7 +145,7 @@ export function Wizard() {
                     {hasSnaps && <label className="flex items-center gap-2">{t('wiz.version.snaps')}<Switch label={t('wiz.version.snaps')} checked={snaps} onChange={setSnaps} /></label>}
                   </div>
                   <div className="mt-3 grid max-h-[300px] grid-cols-3 gap-2 overflow-y-auto sm:grid-cols-4">
-                    {vError ? <p className="col-span-full text-[13px] text-danger">{t('wiz.version.error')}</p> : versions === null ? <p className="col-span-full text-[13px] text-muted">{t('wiz.version.loading')}</p> : shown.map((v) => (
+                    {vError ? <div className="col-span-full space-y-2 text-[13px]"><p className="text-danger">{t('wiz.version.error')}</p><p className="select-text break-words font-mono text-[11.5px] text-muted">{vError}</p><Button variant="ghost" onClick={() => setReload((n) => n + 1)}>{t('wiz.version.retry')}</Button></div> : versions === null ? <p className="col-span-full text-[13px] text-muted">{t('wiz.version.loading')}</p> : shown.map((v) => (
                       <button key={v.id} onClick={() => set({ mcVersion: v.id })} aria-pressed={d.mcVersion === v.id} className={clsx('no-drag h-9 rounded-ctl font-mono text-[12.5px] transition-[transform,background-color] duration-150 active:scale-[0.96]', d.mcVersion === v.id ? 'bg-accent text-accent-fg' : 'hairline bg-raised/40 hover:bg-raised')}>{v.id}</button>
                     ))}
                   </div>
